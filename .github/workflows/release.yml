@@ -122,9 +122,12 @@ jobs:
           if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
           $executable = Join-Path $installDir 'PULSE.exe'
           if (-not (Test-Path -PathType Leaf $executable)) { throw 'Installed executable is missing.' }
-          $app = Start-Process -FilePath $executable -ArgumentList @('--smoke-test', "--smoke-output=$smokeOutput") -PassThru
+          $stderr = Join-Path $env:RUNNER_TEMP 'pulse-smoke-stderr.txt'
+          $stdout = Join-Path $env:RUNNER_TEMP 'pulse-smoke-stdout.txt'
+          $app = Start-Process -FilePath $executable -ArgumentList @('--smoke-test', "--smoke-output=$smokeOutput", '--enable-logging=stderr') -PassThru -RedirectStandardError $stderr -RedirectStandardOutput $stdout
           if (-not $app.WaitForExit(40000)) { Stop-Process -Id $app.Id -Force; throw 'Packaged app smoke test timed out.' }
           Write-Host "Packaged app exit code: $($app.ExitCode)"
+          foreach ($log in @($stdout, $stderr)) { if (Test-Path $log) { Get-Content -Raw $log } }
           if (Test-Path -PathType Leaf $smokeOutput) { Get-Content -Raw $smokeOutput }
           if ($app.ExitCode -ne 0 -or -not (Test-Path -PathType Leaf $smokeOutput)) { throw 'Packaged app smoke test failed.' }
           $result = Get-Content -Raw $smokeOutput | ConvertFrom-Json
