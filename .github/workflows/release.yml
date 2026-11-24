@@ -83,6 +83,8 @@ jobs:
             if ($env:TAG -cne "v$version") { throw 'Tag does not match package.json version.' }
             $tagCommit = git rev-parse --verify "refs/tags/$($env:TAG)^{commit}"
             if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $commit) { throw 'Checkout must be the existing release tag commit.' }
+            git merge-base --is-ancestor $commit refs/remotes/origin/main
+            if ($LASTEXITCODE -ne 0) { throw 'Release commit must be on the reviewed main history.' }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "commit=$commit" >> $env:GITHUB_OUTPUT
@@ -142,9 +144,10 @@ jobs:
           retention-days: 7
 
   sign:
-    if: needs.build.outputs.publish == 'true'
+    if: needs.build.outputs.publish == 'true' && github.repository == 'yuuma1on/yuu'
     needs: build
     runs-on: ubuntu-latest
+    environment: release-signing
     timeout-minutes: 10
     permissions:
       contents: read
@@ -218,6 +221,8 @@ jobs:
           [[ "$RELEASE_TAG" == "v$APP_VERSION" ]]
           tag_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq '.sha')
           [[ "$tag_commit" == "$EXPECTED_COMMIT" ]]
+          ancestry=$(gh api "repos/$GH_REPO/compare/$tag_commit...main" --jq '.status')
+          [[ "$ancestry" == 'ahead' || "$ancestry" == 'identical' ]]
           installer="PULSE-Setup-$APP_VERSION-x64.exe"
           expected=$(printf '%s\n' "$installer" "$installer.blockmap" latest.yml pulse-update.json | sort)
           actual=$(find release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
