@@ -25,6 +25,14 @@
       if (node.textContent !== value) node.textContent = value;
     };
     const version = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : '';
+    const headerVersion = element('span', 'pulse-desktop-version');
+    headerVersion.id = 'pulseDesktopVersion';
+    headerVersion.title = '現在のバージョン';
+    headerVersion.hidden = true;
+    document.querySelector('.topbar .breadcrumb')?.append(headerVersion);
+    // The bundled site footer displays the web release number.
+    document.querySelector('.sidebar-footer > span:nth-child(2)')?.remove();
+
     const panel = element('section', 'pulse-desktop-update');
     panel.id = 'pulseDesktopUpdatePanel';
     panel.setAttribute('aria-labelledby', 'pulseDesktopUpdateHeading');
@@ -80,6 +88,8 @@
         unsupported: ['この環境では自動更新を利用できません。', '']
       }[shownStatus];
       panel.dataset.status = shownStatus;
+      headerVersion.hidden = !state.appVersion;
+      text(headerVersion, state.appVersion ? `v${state.appVersion}` : '');
       text(current, state.appVersion ? `現在のアプリ v${state.appVersion}` : '現在のバージョン —');
       text(status, notice || copy[0]);
       text(detail, copy[1]);

@@ -77,7 +77,13 @@ async function runSmoke(){
   const button=document.getElementById('demoBtn');if(!button)throw new Error('Demo control missing');button.click();
   for(let i=0;i<300;i++){
    await new Promise(r=>setTimeout(r,100));
-   if(!document.getElementById('results').hidden&&!button.disabled){const bpm=Number(document.getElementById('bpmValue').textContent);return {...basic,appVersion:state.appVersion,bpm,ok:!basic.nodeAvailable&&basic.secureContext&&basic.workerAvailable&&basic.desktopBridge&&Math.abs(bpm-120)<.05};}
+   if(!document.getElementById('results').hidden&&!button.disabled){
+    const bpm=Number(document.getElementById('bpmValue').textContent);
+    const label=document.querySelector('.topbar #pulseDesktopVersion');
+    const displayedVersion=label?.checkVisibility()?label.textContent:null;
+    const ok=!basic.nodeAvailable&&basic.secureContext&&basic.workerAvailable&&basic.desktopBridge&&Math.abs(bpm-120)<.05&&displayedVersion==='v'+state.appVersion;
+    return {...basic,appVersion:state.appVersion,displayedVersion,bpm,ok};
+   }
   }throw new Error('Audio analysis smoke timed out');
  })()`);
  finishSmoke(result,result.ok?0:1);
