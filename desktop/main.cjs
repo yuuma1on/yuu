@@ -6,6 +6,7 @@ const {pathToFileURL}=require('node:url');
 const {autoUpdater}=require('electron-updater');
 const {UpdateController}=require('./update-controller.cjs');
 const {launchNsisInstaller}=require('./installer-launch.cjs');
+const {resolveSmokeOutput}=require('./smoke-output.cjs');
 const {ORIGIN,trustedUrl,resolveAsset,permittedTjaFile,createTjaPermissions}=require('./asset-policy.cjs');
 
 protocol.registerSchemesAsPrivileged([{scheme:'pulse',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
@@ -86,9 +87,9 @@ function finishSmoke(result,code){
  app.exit(code);
 }
 function writeSmoke(result){
-  const arg=process.argv.find(v=>v.startsWith('--smoke-output='));
-  if(arg){const requested=path.resolve(arg.slice('--smoke-output='.length)),output=path.join(fs.realpathSync(path.dirname(requested)),path.basename(requested)),relative=path.relative(fs.realpathSync(app.getPath('temp')),output);if(relative.startsWith('..'+path.sep)||relative==='..'||path.isAbsolute(relative))throw new Error('Smoke output must be a new temporary file');fs.writeFileSync(output,JSON.stringify(result,null,2),{flag:'wx'});}
   console.log(JSON.stringify(result));
+  const arg=process.argv.find(v=>v.startsWith('--smoke-output='));
+  if(arg){const output=resolveSmokeOutput(arg.slice('--smoke-output='.length),[app.getPath('temp'),os.tmpdir(),process.env.RUNNER_TEMP]);fs.writeFileSync(output,JSON.stringify(result,null,2),{flag:'wx'});}
 }
 async function runUpdateSmoke(){
  const state=await updates.check();

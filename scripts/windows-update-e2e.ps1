@@ -27,9 +27,9 @@ if ($env:GITHUB_REPOSITORY -cne 'yuuma1on/yuu') {
 $repository = Split-Path -Parent $PSScriptRoot
 $reportRoot = [System.IO.Path]::GetFullPath($ReportDirectory)
 New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
-# Electron restricts smoke output to app.getPath('temp'); use the native Windows
-# temp root rather than assuming RUNNER_TEMP and the app temp directory coincide.
-$testRoot = Join-Path ([System.IO.Path]::GetTempPath()) "pulse-update-e2e-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+# The smoke CLI explicitly permits the runner's temporary root; Windows and
+# Electron may otherwise select different system temporary directories.
+$testRoot = Join-Path $env:RUNNER_TEMP "pulse-update-e2e-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 if (Test-Path $testRoot) { throw 'The E2E temporary directory already exists.' }
 New-Item -ItemType Directory -Path $testRoot | Out-Null
 $installRoot = Join-Path $testRoot 'installed'

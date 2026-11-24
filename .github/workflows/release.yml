@@ -115,7 +115,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installer = Join-Path $PWD "dist/PULSE-Setup-$($env:APP_VERSION)-x64.exe"
           $installDir = Join-Path $env:RUNNER_TEMP 'pulse-smoke'
-          $smokeOutput = Join-Path ([IO.Path]::GetTempPath()) "pulse-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          $smokeOutput = Join-Path $env:RUNNER_TEMP "pulse-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
           if (Test-Path $smokeOutput) { throw 'Smoke output already exists.' }
           $setup = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installDir") -PassThru
           if (-not $setup.WaitForExit(120000)) { Stop-Process -Id $setup.Id -Force; throw 'Installer timed out.' }
