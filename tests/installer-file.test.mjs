@@ -19,10 +19,12 @@ async function fixture(t){
 // change before returning it. This deterministically models replacement just
 // after hashing/fstat, without changing what the verified descriptor names.
 async function afterHashStat(filename,action,run){
- const original=fs.promises.open;let changed=false;
+ // Windows temporary directories may use an 8.3 alias; the verifier opens
+ // realpath's canonical long spelling rather than the caller's input string.
+ const canonical=await fs.promises.realpath(filename),original=fs.promises.open;let changed=false;
  fs.promises.open=async function(file,...args){
   const handle=await original.call(this,file,...args);
-  if(file===filename){
+  if(file===canonical){
    const stat=handle.stat.bind(handle);let calls=0;
    handle.stat=async function(...options){
     const snapshot=await stat(...options);
@@ -66,6 +68,15 @@ test('an already symlinked installer is refused even when its target has the sig
  try{await fs.promises.symlink(f.filename,link,'file');}
  catch(error){if(['EPERM','EACCES','ENOTSUP'].includes(error.code)){t.skip('host policy does not permit creating file symlinks');return;}throw error;}
  await assert.rejects(verifyInstaller(link,artifact,f.cache),{code:'INSTALLER_SYMLINK'});
+});
+
+test('a pathname replaced by a symlink after hashing is refused even when it leads to the verified file',async t=>{
+ const f=await fixture(t),retired=path.join(f.cache,'verified-old.exe'),probe=path.join(f.cache,'symlink-probe.exe');
+ try{await fs.promises.symlink(f.filename,probe,'file');await fs.promises.unlink(probe);}
+ catch(error){if(['EPERM','EACCES','ENOTSUP'].includes(error.code)){t.skip('host policy does not permit creating file symlinks');return;}throw error;}
+ await afterHashStat(f.filename,async()=>{await fs.promises.rename(f.filename,retired);await fs.promises.symlink(retired,f.filename,'file');},async()=>{
+  await assert.rejects(verifyInstaller(f.filename,artifact,f.cache),{code:'INSTALLER_SYMLINK'});
+ });
 });
 
 test('a file changed in place after verification remains rejected',async t=>{
