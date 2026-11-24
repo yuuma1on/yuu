@@ -16,7 +16,7 @@ let mainWindow,updates,checkTimer,periodicTimer,quitFallback=false;
 if(!app.requestSingleInstanceLock())app.quit();
 else{
  app.on('second-instance',()=>{if(mainWindow){if(mainWindow.isMinimized())mainWindow.restore();mainWindow.focus();}});
- app.whenReady().then(start).catch(error=>{console.error('PULSE startup failed:',error.message);app.exit(1);});
+ app.whenReady().then(start).catch(error=>{if(smoke)finishSmoke({ok:false,error:error.message},1);else{console.error('PULSE startup failed:',error.message);app.exit(1);}});
 }
 function validSender(event){return mainWindow&&!mainWindow.isDestroyed()&&event.sender===mainWindow.webContents&&event.senderFrame===mainWindow.webContents.mainFrame&&trustedUrl(event.senderFrame?.url);}
 function requireSender(event){if(!validSender(event))throw new Error('Untrusted application frame');}
@@ -87,7 +87,7 @@ function finishSmoke(result,code){
 }
 function writeSmoke(result){
   const arg=process.argv.find(v=>v.startsWith('--smoke-output='));
-  if(arg){const output=path.resolve(arg.slice('--smoke-output='.length)),relative=path.relative(app.getPath('temp'),output);if(relative.startsWith('..'+path.sep)||relative==='..'||path.isAbsolute(relative))throw new Error('Smoke output must be a new temporary file');fs.writeFileSync(output,JSON.stringify(result,null,2),{flag:'wx'});}
+  if(arg){const requested=path.resolve(arg.slice('--smoke-output='.length)),output=path.join(fs.realpathSync(path.dirname(requested)),path.basename(requested)),relative=path.relative(fs.realpathSync(app.getPath('temp')),output);if(relative.startsWith('..'+path.sep)||relative==='..'||path.isAbsolute(relative))throw new Error('Smoke output must be a new temporary file');fs.writeFileSync(output,JSON.stringify(result,null,2),{flag:'wx'});}
   console.log(JSON.stringify(result));
 }
 async function runUpdateSmoke(){
