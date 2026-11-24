@@ -1,0 +1,119 @@
+.pulse-desktop-update {
+  flex: none;
+  min-width: 0;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line, #e6eae3);
+  border-radius: 10px;
+  background: #fcfdfb;
+  color: var(--ink, #202c27);
+  font-family: var(--sans, sans-serif);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.pulse-desktop-update [hidden] { display: none !important; }
+.pulse-desktop-update p { margin: 0; }
+.pulse-desktop-update__heading {
+  margin: 0 0 3px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.pulse-desktop-update__version {
+  color: #6b776e;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.pulse-desktop-update__status { margin-top: 9px !important; }
+.pulse-desktop-update__next,
+.pulse-desktop-update__detail {
+  margin-top: 5px !important;
+  color: #6b776e;
+  font-size: 10px;
+}
+.pulse-desktop-update__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.pulse-desktop-update__progress progress {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 6px;
+  background: #e6ede3;
+  accent-color: var(--green, #17634a);
+}
+.pulse-desktop-update__progress progress::-webkit-progress-bar {
+  border-radius: 6px;
+  background: #e6ede3;
+}
+.pulse-desktop-update__progress progress::-webkit-progress-value {
+  border-radius: 6px;
+  background: var(--green, #17634a);
+}
+.pulse-desktop-update__progress progress::-moz-progress-bar {
+  border-radius: 6px;
+  background: var(--green, #17634a);
+}
+.pulse-desktop-update__percent {
+  flex: none;
+  color: #6b776e;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.pulse-desktop-update__action {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin-top: 11px;
+  padding: 7px 9px;
+  border: 1px solid #cddacb;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--green, #17634a);
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+  cursor: pointer;
+}
+.pulse-desktop-update__action:hover:not(:disabled) {
+  border-color: #9db49b;
+  background: #f0f6ec;
+}
+.pulse-desktop-update__action:focus-visible {
+  outline: 2px solid var(--green, #17634a);
+  outline-offset: 3px;
+}
+.pulse-desktop-update__action:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.pulse-desktop-update[data-status="ready"] {
+  border-color: #b9ceaf;
+  background: #f2f7ed;
+}
+.pulse-desktop-update[data-status="ready"] .pulse-desktop-update__action {
+  border-color: var(--green, #17634a);
+  background: var(--green, #17634a);
+  color: #fff;
+}
+.pulse-desktop-update[data-status="ready"] .pulse-desktop-update__action:hover:not(:disabled) {
+  border-color: var(--green-dark, #124c39);
+  background: var(--green-dark, #124c39);
+}
+.pulse-desktop-update[data-status="error"] .pulse-desktop-update__status { color: #984430; }
+.pulse-desktop-update[data-location="content"] { margin: 12px 20px 0; }
+
+@media (max-width: 740px) {
+  .pulse-desktop-update[data-location="content"] { padding: 12px 14px; }
+  .pulse-desktop-update__action { max-width: 240px; min-height: 40px; }
+}

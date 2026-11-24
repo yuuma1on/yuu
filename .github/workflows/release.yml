@@ -1,0 +1,246 @@
+name: Windows build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a tested, signed release from an existing stable version tag'
+        type: boolean
+        required: true
+        default: false
+      release_tag:
+        description: 'Existing tag, required when publishing (for example v1.26.0)'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.event_name }}-${{ github.ref }}-${{ inputs.release_tag || 'build' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.ref.outputs.publish }}
+      tag: ${{ steps.validate.outputs.tag }}
+      version: ${{ steps.validate.outputs.version }}
+      commit: ${{ steps.validate.outputs.commit }}
+    steps:
+      - name: Select release or build ref
+        id: ref
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          DISPATCH_PUBLISH: ${{ inputs.publish || false }}
+          DISPATCH_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publish = ($env:EVENT_NAME -eq 'push' -and $env:EVENT_REF.StartsWith('refs/tags/')) -or ($env:EVENT_NAME -eq 'workflow_dispatch' -and $env:DISPATCH_PUBLISH -eq 'true')
+          if ($publish) {
+            $tag = if ($env:EVENT_NAME -eq 'push') { $env:EVENT_REF.Substring(10) } else { $env:DISPATCH_TAG }
+            if ($tag -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw 'Publishing requires an existing canonical stable version tag.' }
+            "checkout_ref=refs/tags/$tag" >> $env:GITHUB_OUTPUT
+            "tag=$tag" >> $env:GITHUB_OUTPUT
+          } else {
+            "checkout_ref=$env:EVENT_SHA" >> $env:GITHUB_OUTPUT
+          }
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Check out the exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.ref.outputs.checkout_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate repository, version, and tag
+        id: validate
+        shell: pwsh
+        env:
+          EXPECTED_REPOSITORY: yuuma1on/yuu
+          ACTUAL_REPOSITORY: ${{ github.repository }}
+          PUBLISH: ${{ steps.ref.outputs.publish }}
+          TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:ACTUAL_REPOSITORY -cne $env:EXPECTED_REPOSITORY) { throw 'This workflow only releases yuuma1on/yuu.' }
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          if ($version -cnotmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') { throw 'package.json must use a stable semantic version.' }
+          $commit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve checkout commit.' }
+          if ($env:PUBLISH -eq 'true') {
+            if ($env:TAG -cne "v$version") { throw 'Tag does not match package.json version.' }
+            $tagCommit = git rev-parse --verify "refs/tags/$($env:TAG)^{commit}"
+            if ($LASTEXITCODE -ne 0 -or $tagCommit -cne $commit) { throw 'Checkout must be the existing release tag commit.' }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+          "tag=$env:TAG" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build the x64 NSIS installer
+        run: npm run build:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Install and launch the packaged app
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $PWD "dist/PULSE-Setup-$($env:APP_VERSION)-x64.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP 'pulse-smoke'
+          $smokeOutput = Join-Path $env:RUNNER_TEMP "pulse-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if (Test-Path $smokeOutput) { throw 'Smoke output already exists.' }
+          $setup = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installDir") -PassThru
+          if (-not $setup.WaitForExit(120000)) { Stop-Process -Id $setup.Id -Force; throw 'Installer timed out.' }
+          if ($setup.ExitCode -ne 0) { throw "Installer failed: $($setup.ExitCode)" }
+          $executable = Join-Path $installDir 'PULSE.exe'
+          if (-not (Test-Path -PathType Leaf $executable)) { throw 'Installed executable is missing.' }
+          $app = Start-Process -FilePath $executable -ArgumentList @('--smoke-test', "--smoke-output=$smokeOutput") -PassThru
+          if (-not $app.WaitForExit(40000)) { Stop-Process -Id $app.Id -Force; throw 'Packaged app smoke test timed out.' }
+          if ($app.ExitCode -ne 0 -or -not (Test-Path -PathType Leaf $smokeOutput)) { throw 'Packaged app smoke test failed.' }
+          $result = Get-Content -Raw $smokeOutput | ConvertFrom-Json
+          if ($result.ok -ne $true -or $result.appVersion -cne $env:APP_VERSION -or $result.nodeAvailable -ne $false -or $result.secureContext -ne $true -or $result.bpm -ne 120) {
+            throw 'Packaged app did not pass demo, sandbox, version, and secure-context checks.'
+          }
+
+      - name: Upload only Windows release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pulse-unsigned-windows
+          path: |
+            dist/PULSE-Setup-${{ steps.validate.outputs.version }}-x64.exe
+            dist/PULSE-Setup-${{ steps.validate.outputs.version }}-x64.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    if: needs.build.outputs.publish == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the tested source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.build.outputs.commit }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+
+      - name: Download the tested Windows assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pulse-unsigned-windows
+          path: dist
+
+      - name: Authenticate the exact installer and update metadata
+        run: node scripts/sign-update.mjs --dir dist --version "$APP_VERSION"
+        env:
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          PULSE_UPDATE_PRIVATE_KEY: ${{ secrets.PULSE_UPDATE_PRIVATE_KEY }}
+
+      - name: Upload only the signed release asset set
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pulse-signed-windows
+          path: |
+            dist/PULSE-Setup-${{ needs.build.outputs.version }}-x64.exe
+            dist/PULSE-Setup-${{ needs.build.outputs.version }}-x64.exe.blockmap
+            dist/latest.yml
+            dist/pulse-update.json
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    if: needs.build.outputs.publish == 'true'
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download this run's authenticated assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: pulse-signed-windows
+          path: release
+
+      - name: Publish a complete release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          EXPECTED_COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [[ "$GH_REPO" == 'yuuma1on/yuu' ]]
+          [[ "$APP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          [[ "$RELEASE_TAG" == "v$APP_VERSION" ]]
+          tag_commit=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq '.sha')
+          [[ "$tag_commit" == "$EXPECTED_COMMIT" ]]
+          installer="PULSE-Setup-$APP_VERSION-x64.exe"
+          expected=$(printf '%s\n' "$installer" "$installer.blockmap" latest.yml pulse-update.json | sort)
+          actual=$(find release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          [[ "$actual" == "$expected" ]]
+          for asset in "$installer" "$installer.blockmap" latest.yml pulse-update.json; do
+            [[ -s "release/$asset" && ! -L "release/$asset" ]]
+          done
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'A release already exists for this tag. Versioned releases are never overwritten.' >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "PULSE $APP_VERSION" --generate-notes \
+            "release/$installer#Windows x64 installer" \
+            "release/$installer.blockmap#Installer blockmap" \
+            'release/latest.yml#Update metadata' \
+            'release/pulse-update.json#Authenticated update manifest'
+          gh release view "$RELEASE_TAG" --json assets > "$RUNNER_TEMP/pulse-release-assets.json"
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const {assets} = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/pulse-release-assets.json`, "utf8"));
+            const names = [`PULSE-Setup-${process.env.APP_VERSION}-x64.exe`, `PULSE-Setup-${process.env.APP_VERSION}-x64.exe.blockmap`, "latest.yml", "pulse-update.json"];
+            if (assets.length !== names.length) throw new Error("Incomplete draft release");
+            for (const name of names) {
+              const asset = assets.find((entry) => entry.name === name);
+              if (!asset || asset.size !== fs.statSync(`release/${name}`).size || asset.state !== "uploaded") throw new Error("Draft asset verification failed");
+            }
+          '
+          gh release edit "$RELEASE_TAG" --draft=false --latest

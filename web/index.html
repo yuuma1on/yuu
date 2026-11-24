@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#17634a">
+  <meta name="description" content="音源をブラウザ内で解析。BPM、テンポの揺れ、拍子と変拍子の候補を、聴きながら確かめるリズム解析ツール。">
+  <title>PULSE — リズム解析</title>
+  <link rel="stylesheet" href="./styles.css?v=27">
+  <link rel="stylesheet" href="./desktop/update-ui.css">
+</head>
+<body>
+  <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 10v4m4-8v12m5-15v18m5-15v12m4-8v4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 4 2c-1 .6-1.5 1-1.5 2M12 16h.01"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7V5Z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4 10V6h15l-3-3m4 11v4H5l3 3M4 6v5m16 7v-5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  </defs></svg>
+
+  <aside class="sidebar">
+    <a class="brand" href="./" aria-label="PULSE ホーム"><span class="brand-symbol"><svg class="icon"><use href="#i-wave"/></svg></span><span>PULSE<span class="brand-period">.</span></span></a>
+    <div class="workspace-label">YOUR WORKSPACE</div>
+    <nav aria-label="メインナビゲーション">
+      <a class="nav-item active" href="./" aria-current="page"><svg class="icon"><use href="#i-plus"/></svg><span>新しい解析</span><span class="nav-dot"></span></a>
+      <button class="nav-item" id="helpBtn"><svg class="icon"><use href="#i-help"/></svg><span>使い方と解析について</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="local-card"><svg class="icon"><use href="#i-shield"/></svg><p>あなたの音源は、<br><strong>あなたのブラウザに。</strong></p><span>ファイルは外部サーバーへ<br>送信されません。</span></div>
+      <div class="sidebar-footer"><span>RHYTHM ANALYSIS STUDIO</span><span>v1.26.0</span></div>
+    </div>
+  </aside>
+
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumb"><span>WORKSPACE</span><span class="slash">/</span><strong>リズム解析</strong></div><div class="local-status"><span class="status-dot"></span>ブラウザ内処理</div></header>
+    <main>
+      <section class="intro" aria-labelledby="pageTitle">
+        <div><div class="eyebrow"><span></span> FIND THE PULSE</div><h1 id="pageTitle">リズムを、読み解く。</h1><p>曲の速さも、拍子も、その揺らぎも。<br class="mobile-break">音の中にあるリズムを、見えるかたちに。</p></div>
+        <div class="intro-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      </section>
+
+      <section class="upload-panel" aria-labelledby="uploadHeading">
+        <p class="audio-only-guide"><strong>音源だけでBPMを自動解析できます。TJAは不要です。</strong><br>音源を選択 → 解析 → BPMと変化候補を確認 → 必要ならJSONで保存</p>
+        <div class="panel-heading"><h2 id="uploadHeading"><span class="step-number">01</span> 音源を読み込む</h2><span class="muted small">LOCAL AUDIO ANALYSIS</span></div>
+        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="音源ファイルを選択、またはドロップ">
+          <div class="upload-icon"><svg class="icon"><use href="#i-upload"/></svg><span class="upload-note">♪</span></div>
+          <h3 id="uploadTitle">ここに音源をドロップ</h3><p id="uploadMeta">または、ファイルを選択してはじめましょう</p>
+          <button class="button primary" id="chooseFileBtn">音源を選択<svg class="icon"><use href="#i-arrow"/></svg></button>
+          <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
+          <span class="file-hint">MP3 / WAV / M4A / FLAC / OGG <span>·</span> 最大100MB・15分</span>
+        </div>
+        <div class="analysis-settings"><div class="auto-detection-note"><span class="auto-detection-icon"><svg class="icon"><use href="#i-check"/></svg></span><div><strong>自動検出</strong><span>設定なしで解析</span></div></div><div class="settings-actions"><button class="button text-button" id="demoBtn"><span class="tiny-play">▷</span> 一定BPMのデモ</button><div class="variable-demo-controls"><label for="variableDemoKind" class="sr-only">変動BPMデモの種類</label><select id="variableDemoKind" aria-describedby="variableDemoSequence"><option value="small" data-sequence="170.5、172、170.5、176、168.5">小さな変動</option><option value="rapid" data-sequence="120、180、150、240、120">大きな変動</option><option value="one-bar" data-sequence="200から300へ連続的に加速" data-assumption="4/4・4拍を1小節とする検証条件です。">1小節で加速</option></select><button class="button text-button" id="variableDemoBtn" aria-describedby="variableDemoSequence">変動BPMのデモ</button><span id="variableDemoSequence" class="sr-only">小さな変動の検証用音源。BPM：170.5、172、170.5、176、168.5。</span></div><button class="button text-button" id="gapDemoBtn">空白を挟む変化デモ</button><button class="button primary" id="analyzeBtn" disabled>解析をはじめる<svg class="icon"><use href="#i-arrow"/></svg></button><button class="button secondary" id="cancelBtn" hidden>中止</button></div></div>
+      </section>
+
+      <section class="progress-panel" id="progressPanel" aria-live="polite" hidden><div><span class="processing-dot"></span><strong id="progressText">音源を読み込んでいます…</strong></div><div class="progress-track"><div id="progressBar" role="progressbar" aria-label="解析の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div></section>
+
+      <section class="empty-state" id="emptyState" aria-labelledby="insightHeading"><div class="section-kicker">ONE TRACK, MORE INSIGHT</div><h2 id="insightHeading">聴くだけでは、気づけなかったリズムへ。</h2><div class="feature-grid"><article><div class="feature-illustration bpm-illustration" aria-hidden="true"><span>♩</span><div><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><h3>BPMを測る</h3><p>曲全体の速さと、時間ごとのテンポを解析。倍速・半速の候補も確認できます。</p><span class="feature-tag">TEMPO</span></article><article><div class="feature-illustration meter-illustration" aria-hidden="true"><i></i><i></i><i></i><i></i><span>|</span><i></i><i></i><i></i></div><h3>拍子を探る</h3><p>音のアクセントから拍子の候補を推定。変拍子の切り替わりも区間で捉えます。</p><span class="feature-tag">TIME SIGNATURE</span></article><article><div class="feature-illustration drift-illustration" aria-hidden="true"><svg viewBox="0 0 200 50"><path d="M0 30h20l16-8 18 11 20-10 20-4 20 8 22-15 20 6 24-10 20 4"/><path d="M0 30h200" class="baseline"/></svg></div><h3>揺らぎを見つける</h3><p>生演奏のテンポ変動や速度の変化を可視化。拍を重ねて、耳でも確かめられます。</p><span class="feature-tag">TEMPO VARIATION</span></article></div></section>
+
+      <section id="results" hidden aria-label="解析結果">
+        <div class="results-header"><div><div class="section-kicker">ANALYSIS RESULTS</div><h2 id="trackName">解析結果</h2><p id="trackMeta" class="muted small"></p></div><div class="result-actions"><button class="button secondary" id="resetBtn">新しい音源</button><button class="button secondary" id="exportBtn"><svg class="icon"><use href="#i-download"/></svg>結果をJSONで保存</button></div></div>
+        <div class="metric-grid"><article class="metric-card"><span class="metric-label"><span id="bpmDisplayLabel">代表テンポ（表示 ×1）</span></span><div class="metric-value"><strong id="bpmValue">—</strong><span>BPM</span></div><p id="bpmRange">—</p></article><article class="metric-card"><span class="metric-label">主な拍子候補 <span>METER</span></span><div class="metric-value"><strong id="meterValue">—</strong><span>候補</span></div><p id="meterDetail">—</p></article><article class="metric-card"><span class="metric-label">テンポの変動 <span>VARIATION</span></span><div class="metric-value"><strong id="stabilityValue">—</strong></div><p id="stabilityDetail">—</p></article></div>
+        <p id="confidenceText" class="confidence-text"></p>
+        <p class="muted small">音源だけで解析しています。結果はJSON、タイミング下書きはTJAで保存できます。ノーツは自動作成しません。</p>
+        <section class="data-panel tja-draft-panel export-primary single-save" id="tjaDraftPanel" aria-labelledby="tjaExportHeading">
+          <div class="single-save-row"><div><h3 id="tjaExportHeading">新規TJA</h3><p class="small muted">ヘッダー空欄・ノーツなしの下書きです。保存後にBPM・WAVE・OFFSETなどを記入してください。</p></div><label id="tjaMeterInline" for="tjaConfirmedMeter">拍子を選んでから保存<select id="tjaConfirmedMeter"><option value="">拍子を選択</option><option>4/4</option><option>3/4</option><option>2/4</option><option>5/4</option><option>6/4</option><option>7/4</option><option>5/8</option><option>6/8</option><option>7/8</option><option>9/8</option><option>12/8</option></select></label><button class="button primary" id="saveTjaBtn" disabled>.tjaをダウンロード</button></div>
+          <p id="tjaExportActionStatus" role="status" aria-live="polite" class="export-status"></p><p id="tjaSaveStatus" role="status" class="small"></p>
+          <details id="tjaBlockerReview" hidden><summary id="tjaBlockerSummary">保存を止めている推定箇所を確認</summary><p id="tjaBlockerExplanation" class="small muted"></p><ul id="tjaBlockerRows"></ul></details>
+          <details class="export-details" id="tjaOutputSettings"><summary>出力設定・内容</summary><div id="tjaExportDetails">
+            <div class="export-controls"><button class="button secondary" id="previewTjaBtn">プレビューを更新</button></div>
+          <p id="tjaDraftStatus" role="status" class="export-status"></p>
+            <p id="tjaDraftMetadata"></p>
+            <p>参照TJAと表示倍率は出力に使いません。変動BPMの未確定候補は自動で時刻を決めず、区間の手動確認が必要です。手動区間は区間ごとの確認済み拍子を使います。BPMは四分音符基準です。拍単位も確認してください。</p>
+            <p>空小節は「,」だけの1行です。完全な小節のみ出力し、小節途中のBPM変更では時刻をずらさず停止します。最後の端数時間は省略範囲に表示します。OFFSET候補は区間開始時刻から別表示し、小節頭は自動確定しません。14項目のヘッダーはすべて空欄で、候補は自動記入しません。そのままではゲームに読み込めません。</p>
+            <ul id="tjaDraftWarnings"></ul>
+          <div class="table-scroll"><table><thead><tr><th>対象区間（秒）</th><th>BPM</th><th>符号化後の終了（秒）</th><th>数値上の差（ms）</th></tr></thead><tbody id="tjaDraftRows"></tbody></table></div>
+          <label for="tjaDraftPreview">新規ファイルの内容（読み取り専用）</label><textarea id="tjaDraftPreview" readonly rows="10" spellcheck="false"></textarea>
+
+            <p class="muted small">この操作はダウンロードを要求します。保存先はブラウザーの設定に従います。既存TJAの置換は別の機能です。OpenTaiko標準モードの公開仕様・ソースを参考にした形式です。実機動作や他エンジンは未検証です。詳細な解析データはJSONで保存できます。</p>
+            <p class="muted small">ブラウザーの保存画面が出たら、新しいファイル名を選び、既存のTJAは上書きしないでください。アプリ内で動かない場合は通常のブラウザーで開いてください。未確定区間による書き出し停止はブラウザーを変えても解除されません。</p>
+          </div></details>
+        </section>
+        <details class="data-panel display-unit-panel" aria-label="代表BPMの表示単位"><summary>表示単位を切り替える</summary><label for="bpmDisplayScale">代表BPMの表示単位（再解析しません）</label><select id="bpmDisplayScale"><option value="0.5">半分 ×0.5</option><option value="1" selected>元の値 ×1</option><option value="2">倍 ×2</option></select><p id="bpmDisplayAlternatives"></p><p id="bpmDisplayNote" class="muted"></p></details>
+        <details id="tempoInterpretation" class="tempo-interpretation" aria-labelledby="tempoInterpretationHeading"><summary>別のテンポ候補を聴き比べる</summary><div class="tempo-interpretation-heading"><div><h3 id="tempoInterpretationHeading">テンポ候補を聴き比べる</h3><p id="tempoCandidates" class="tempo-candidates"></p></div><span class="pill neutral">拍の取り方を確認</span></div><div id="tempoHypotheses" class="tempo-hypotheses" aria-label="テンポの候補"></div><div class="tempo-interpretation-actions"><div class="tempo-scale-buttons"><button class="button secondary small-button" id="halfTempoBtn">½ BPMで再解析</button><button class="button secondary small-button" id="doubleTempoBtn">2× BPMで再解析</button></div><p>曲全体の候補を比較できます。区間だけの修正は、区間一覧から指定してください。</p></div></details>
+        <section class="data-panel player-panel" aria-labelledby="waveformHeading"><div class="panel-heading"><h3 id="waveformHeading">波形とビート</h3><div class="chart-legend"><span class="legend-line"></span>推定ビート <span class="legend-line accent"></span>小節の先頭候補</div></div><canvas id="waveform" width="1200" height="160" aria-label="音源の波形と推定ビート。再生位置は下のスライダーで変更できます。"></canvas><label class="sr-only" for="seekBar">再生位置</label><input id="seekBar" class="seek-bar" type="range" min="0" max="100" value="0" step="0.01"><div class="player-controls"><div class="transport"><button class="play-button" id="playBtn" aria-label="再生"><svg class="icon"><use href="#i-play"/></svg></button><div class="time-display"><span id="currentTime">0:00</span><span>/</span><span id="duration">0:00</span></div></div><div class="playback-options"><button class="button small-button secondary" id="loopBtn" aria-pressed="false"><svg class="icon"><use href="#i-loop"/></svg>区間ループ</button><button class="button small-button secondary" id="metronomeBtn" aria-pressed="false"><svg class="icon"><use href="#i-wave"/></svg>クリック音</button></div></div><div class="click-reference-controls"><label for="clickSource">クリックの基準</label><select id="clickSource"><option value="estimated">現在の推定拍（手動修正を含む）</option><option id="referenceClickOption" value="reference" disabled>参照TJAの四分音符</option></select><p id="referenceAudition">音源だけで推定拍のクリックを聴けます。手元にTJAがある場合だけ、参照クリックも選べます。</p><p class="muted">「クリック音」をオンにして再生してください。参照を切り替えても推定結果は変わりません。ブラウザー・音声機器の遅延があるため、試聴はサンプル精度の同期保証ではありません。</p></div></section>
+        <section class="data-panel" aria-labelledby="tempoHeading"><div class="panel-heading"><div><h3 id="tempoHeading">テンポの推移</h3><p class="muted small">周期の手掛かりが弱い箇所は途切れ、BPM変化の候補は網掛けで表示します。</p></div><span class="chart-unit">BPM / TIME</span></div><canvas id="tempoChart" width="1200" height="240" aria-label="時間ごとのBPMと変化候補のグラフ" aria-describedby="tempoChangeSummary"></canvas></section>
+        <details class="data-panel tja-draft-panel tja-replace-panel" id="tjaReplacePanel">
+          <summary>既存TJAの本体を置き換える（単一コースのみ）</summary>
+          <p class="replacement-warning"><strong>元のノーツ・歌詞・スクロールなどを削除します。</strong> #START〜#END全体を、現在の解析・手動確認によるノーツなしのタイミング下書きに置き換えます。本体以外のヘッダーなどはバイト単位で保持します。参照TJAは解析元に使いません。</p>
+          <p class="muted small">一定BPMの拍子は上の新規テンプレート欄の「出力拍子」を共有します。手動区間は各区間で確認した拍子を使います。</p>
+          <label for="replaceEncoding">対象ファイルの文字コードを明示して選択</label><select id="replaceEncoding"><option value="">未指定</option><option value="utf-8">UTF-8</option><option value="shift_jis">CP932（Shift_JIS互換）</option></select>
+          <div class="replacement-actions"><label class="button secondary" for="replaceFile">コピー保存用にTJAを選ぶ</label><input id="replaceFile" type="file" accept=".tja,text/plain"><button class="button secondary" id="replaceOpen">元ファイルを開く（上書き対応ブラウザー）</button></div>
+          <p id="replaceName">対象ファイルなし</p><button class="button secondary" id="replacePreview">置換前・置換後を確認</button>
+          <p id="replaceStatus" role="status" aria-live="polite"></p><ul id="replaceWarnings"></ul>
+          <div class="replacement-previews"><label>置換前の本体<textarea id="replaceOld" readonly rows="7" spellcheck="false"></textarea></label><label>置換後の本体<textarea id="replaceNew" readonly rows="7" spellcheck="false"></textarea></label></div>
+          <label class="draft-consent"><input id="replaceConsent" type="checkbox">両方の本体、削除される内容、拍子・OFFSET・省略範囲を確認しました。元のノーツを保持しない置換コピーを保存します。</label>
+          <button class="button secondary" id="replaceCopy">別名の置換コピーをダウンロード</button>
+          <p class="muted small">コピー用のファイル選択では元ファイルを上書きできません。上書きには、「元ファイルを開く」で選んだ元データと、別ファイルとして検証したバックアップが必要です。ダウンロード時に保存画面が出たら、提案された別名を使い、既存のTJAは上書きしないでください。</p>
+          <div class="replacement-actions"><button class="button secondary" id="replaceBackupDownload">バックアップをダウンロード</button><button class="button secondary" id="replaceBackup">バックアップを開いて検証</button></div>
+          <label class="draft-consent"><input id="replaceOverwriteConsent" type="checkbox">検証済みバックアップを残し、選択した元ファイルを置換後の内容で上書きします。</label>
+          <button class="button secondary" id="replaceOverwrite">元ファイルを上書き</button><p class="small">上書き中は他のエディターで同じファイルを編集しないでください。直前に変更を確認しますが、外部編集との完全な排他制御はできません。バックアップを保管してください。</p>
+        </details>
+        <details class="data-panel reference-panel" id="optionalReference">
+          <summary id="referenceHeading">任意：手元のTJA譜面と比較する（音源解析には不要）</summary>
+          <div class="panel-heading"><div><h3>既存の譜面を参照する</h3><p class="muted small">TJAを持っている場合だけ使う確認機能です。TJAの生成・書き出し機能ではありません。参照譜面のBPMを紫の破線で重ねます。音声の自動推定は変更しません。譜面の音源名・OFFSET・拍単位を確認してください。</p></div><span class="pill neutral">参照比較</span></div>
+          <div class="reference-controls"><button class="button secondary" id="chooseReference">参照TJAを選択</button><input type="file" id="referenceFile" accept=".tja,text/plain" hidden><button class="button secondary" id="clearReference" disabled>参照を外す</button></div>
+          <details><summary>またはTJAの内容を貼り付ける</summary><label for="referenceText">参照TJAのテキスト</label><textarea id="referenceText" rows="5" maxlength="1000000" spellcheck="false" placeholder="TITLE:曲名&#10;BPM:120&#10;WAVE:音源.wav&#10;OFFSET:0&#10;COURSE:Oni&#10;#START&#10;1000,&#10;#END"></textarea><button class="button secondary" id="readReference">貼り付けたTJAを読み込む</button></details>
+          <label id="referenceCourseLabel" hidden>比較する譜面<select id="referenceCourse"></select></label>
+          <p id="referenceStatus" role="status" class="small">参照なし。音源だけで解析できます。TJAは任意で、読み込んでも自動推定は変わりません。</p>
+          <div id="referenceSummary" hidden></div><div class="table-scroll" id="referenceTableWrap" hidden><table><thead><tr><th>譜面の変更時刻</th><th>参照BPM</th><th>確認</th></tr></thead><tbody id="referenceRows"></tbody></table></div>
+          <p class="muted small">一致率は読み込んだ譜面との比較で、自動解析の正解率や精度保証ではありません。倍・半分は拍単位の違いの場合があり、一致率の低さだけで誤りとは言えません。未推定区間も評価時間に含めます。枝分かれ・遅延など未対応の譜面は明示して停止します。</p>
+        </details>
+        <section class="data-panel tempo-changes-panel" aria-labelledby="tempoChangesHeading"><div class="panel-heading"><div><h3 id="tempoChangesHeading">BPM変化の候補</h3><p id="tempoChangeSummary" class="muted small">時刻とBPMは推定候補です。変化の前から試聴して確認できます。</p></div><span id="tempoChangesCount" class="pill neutral" aria-live="polite">判定保留</span></div><p id="tempoChangesEmpty" class="tempo-changes-empty"></p><ol id="tempoChangesList" class="tempo-changes-list" aria-label="推定したBPM変化" hidden></ol></section>
+        <section id="tempoRegionsPanel" class="data-panel tempo-changes-panel" aria-labelledby="tempoRegionsHeading" hidden><div class="panel-heading"><div><h3 id="tempoRegionsHeading">区間のBPM候補</h3><p class="muted small">BPM変化として確定できない区間の候補です。前後を試聴して確認してください。</p></div><span id="tempoRegionsCount" class="pill neutral">0件の候補</span></div><ol id="tempoRegionsList" class="tempo-changes-list" aria-label="区間ごとのBPM候補"></ol></section>
+        <section class="data-panel unresolved-gap-panel" id="unresolvedGapPanel" aria-labelledby="unresolvedGapHeading" hidden><h3 id="unresolvedGapHeading">未推定区間の前後を確認</h3><p>前後で安定した推定BPMが異なります。空白部分を補間したり、検出済みの変化として数えたりしていません。表示は元のBPM単位です。</p><ul id="unresolvedGapRows"></ul></section>
+        <section class="data-panel sections-panel" aria-labelledby="sectionsHeading"><div class="panel-heading"><div><h3 id="sectionsHeading">区間ごとのリズム</h3><p class="muted small">区間のBPMは代表値です。短い変化は「BPM変化の候補」で確認できます。</p></div><span class="pill neutral">拍子は推定候補</span></div><div class="table-scroll"><table><thead><tr><th>区間</th><th>拍子候補</th><th>BPM</th><th>変化</th><th>候補の強さ</th><th><span class="sr-only">確認</span></th></tr></thead><tbody id="sectionsBody"></tbody></table></div></section>
+        <section class="correction-panel" id="correctionPanel" hidden aria-labelledby="correctionHeading"><div class="panel-heading"><h3 id="correctionHeading">区間の結果を修正</h3><button class="icon-button" id="closeCorrection" aria-label="修正を閉じる">×</button></div><p class="muted small">音源を聴きながら、区間・テンポ・拍子を指定できます。</p><div class="correction-fields"><label>開始（秒）<input id="sectionStart" type="number" min="0" step="any"></label><label>終了（秒）<input id="sectionEnd" type="number" min="0" step="any"></label><label>テンポ（BPM）<input id="manualBpm" type="number" min="0.1" step="any"></label><label>拍子<select id="manualMeter"><option value="auto">自動推定</option><option>2/4</option><option>3/4</option><option selected>4/4</option><option>5/4</option><option>6/4</option><option>7/4</option><option>5/8</option><option>6/8</option><option>7/8</option><option>9/8</option><option>11/8</option><option>12/8</option></select></label><button class="button primary" id="saveCorrection">修正を適用</button><button class="button secondary" id="undoCorrection" disabled>修正を元に戻す</button></div><p id="correctionStatus" role="status" class="small"></p></section>
+        <details class="data-panel" aria-labelledby="precisionHeading"><summary>手動の拍位置から精密に計測</summary>
+          <div class="panel-heading"><div><h3 id="precisionHeading">拍位置から精密に計測</h3><p class="muted small">一定テンポと思われる短い区間ごとに計測します。変動区間全体を1つのBPMにまとめないでください。</p></div><span class="pill neutral">手動検証</span></div>
+          <label for="precisionAnchors">拍番号, 音源先頭からの秒数（1行に1拍）</label>
+          <textarea id="precisionAnchors" rows="5" spellcheck="false" placeholder="0, 1.000000
+8, 3.815249
+16, 6.630499" aria-describedby="precisionHint"></textarea>
+          <p id="precisionHint" class="muted small">拍番号は0始まりで、1増えるごとに選んだ拍単位が1つ進みます。0→16は16拍間隔です。中間の拍を省略する場合も正しい番号を入力してください。3点以上なら一定テンポからのずれも確認できます。</p>
+          <div class="precision-actions"><button id="measureAnchors" class="button secondary">BPMとずれを計測</button><button id="useMeasurement" class="button primary" disabled>修正欄へ転記</button></div>
+          <p id="precisionResult" role="status" class="small">入力した拍位置への適合を計測します。自動検出の正解判定や精度保証ではありません。</p>
+        </details>
+        <div class="analysis-notes"><svg class="icon"><use href="#i-help"/></svg><div><strong>結果を読むときのヒント</strong><ul id="notes"></ul></div></div>
+      </section>
+      <footer class="main-footer"><span><svg class="icon"><use href="#i-shield"/></svg>音源は端末内で処理されます</span><p>拍子は音のアクセントに基づく推定です。候補を試聴し、必要に応じて修正してください。</p></footer>
+    </main>
+  </div>
+  <dialog id="helpDialog"><div class="dialog-header"><span class="section-kicker">QUICK GUIDE</span><button class="icon-button" id="closeHelpBtn" aria-label="説明を閉じる">×</button></div><h2>PULSEの使い方</h2><ol><li><strong>音源を読み込む</strong><p>音源だけで解析できます。TJAは不要です。ファイルを選ぶか、アップロード枠へドロップ。音源は外部に送信されません。</p></li><li><strong>リズムを解析する</strong><p>BPM・テンポ推移・拍子候補を表示します。範囲の設定は不要です。テンポに複数の候補がある場合は、候補や½・2倍のBPMをクリック音で聴き比べられます。</p></li><li><strong>聴いて確かめる</strong><p>区間を選び、クリック音と一緒に再生します。クリックの確認は前面のタブで行ってください。必要に応じてBPMや拍子を修正し、結果をJSONで保存できます。ノーツの自動作成は行いません。タイミングだけのTJA下書きは別欄で確認・保存できます。</p></li></ol><div class="help-note"><strong>拍子の読み方について</strong><p>音だけでは4/4と2/4、3/4と6/8などを一意に決められない場合があります。拍子はアクセントの周期から得た候補として表示し、不明瞭な区間は判定を保留します。テンポの揺れや変拍子は演奏や編曲によって検出が難しい場合があります。</p></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script type="module" src="./app.js?v=33"></script>
+  <script type="module" src="./desktop/update-ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+artifacts/
+.cache/
+*.log
+.env
+.env.*
+!*.example
+*.private.pem
+*.pfx
+*.p12
+signing/
+.secrets/
+test-output/

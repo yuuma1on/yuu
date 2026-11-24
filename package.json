@@ -1,0 +1,76 @@
+{
+  "name": "pulse-rhythm-desktop",
+  "version": "1.26.0",
+  "description": "PULSE local rhythm and BPM analysis for Windows",
+  "productName": "PULSE",
+  "author": "PULSE",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "build:win": "electron-builder --win nsis --x64 --publish never",
+    "build:dir": "electron-builder --dir --publish never",
+    "sync:web": "node scripts/sync-web.mjs",
+    "release:sign": "node scripts/sign-update.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11",
+    "semver": "7.7.4"
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "yaml": "2.9.1"
+  },
+  "build": {
+    "appId": "app.pulse.rhythmstudio",
+    "productName": "PULSE",
+    "executableName": "PULSE",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "desktop/**/*",
+      "web/**/*",
+      "package.json",
+      "source-info.json",
+      "assets/icon.png"
+    ],
+    "artifactName": "PULSE-Setup-${version}-${arch}.${ext}",
+    "publish": {
+      "provider": "github",
+      "owner": "yuuma1on",
+      "repo": "yuu",
+      "releaseType": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "verifyUpdateCodeSignature": true,
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PULSE",
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
