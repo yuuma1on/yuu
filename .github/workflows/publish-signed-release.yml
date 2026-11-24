@@ -56,7 +56,9 @@ jobs:
           gh api "repos/$GH_REPO/contents/package.json?ref=$commit" --jq '.content' | base64 --decode > "$RELEASE_WORKSPACE/tested-package.json"
           [[ "$(jq -r .version "$RELEASE_WORKSPACE/tested-package.json")" == "$APP_VERSION" ]]
           tag="v$APP_VERSION"
-          gh api "repos/$GH_REPO/releases/tags/$tag" > "$RELEASE_WORKSPACE/draft.json"
+          release_id=$(gh release view "$tag" --json apiUrl --jq '.apiUrl | split("/") | last')
+          [[ "$release_id" =~ ^[0-9]+$ ]]
+          gh api "repos/$GH_REPO/releases/$release_id" > "$RELEASE_WORKSPACE/draft.json"
           installer="PULSE-Setup-$APP_VERSION-x64.exe"
           jq -e --arg commit "$commit" --arg tag "$tag" --arg installer "$installer" '.draft == true and .prerelease == false and .target_commitish == $commit and .tag_name == $tag and (.assets | length == 3) and ([.assets[].name] | sort) == ([$installer, ($installer + ".blockmap"), "latest.yml"] | sort) and all(.assets[]; .state == "uploaded" and .size > 0)' "$RELEASE_WORKSPACE/draft.json" >/dev/null
           if gh api "repos/$GH_REPO/git/ref/tags/$tag" > "$RELEASE_WORKSPACE/tag.json" 2> "$RELEASE_WORKSPACE/tag-error.txt"; then
@@ -66,6 +68,7 @@ jobs:
             jq -e '.status == "404"' "$RELEASE_WORKSPACE/tag.json" >/dev/null
           fi
           printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+          printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
           printf 'Validated tested commit %s for unpublished %s.\n' "$commit" "$tag"
 
       - name: Check out the dispatch commit on main
@@ -146,14 +149,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TESTED_COMMIT: ${{ steps.validate.outputs.commit }}
+          RELEASE_ID: ${{ steps.validate.outputs.release_id }}
         run: |
           set -euo pipefail
           tag="v$APP_VERSION"
           installer="PULSE-Setup-$APP_VERSION-x64.exe"
-          gh api "repos/$GH_REPO/releases/tags/$tag" > "$RELEASE_WORKSPACE/before-upload.json"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_WORKSPACE/before-upload.json"
           jq -e --arg commit "$TESTED_COMMIT" --slurpfile original "$RELEASE_WORKSPACE/draft.json" '.draft == true and .target_commitish == $commit and (.assets | length == 3) and all(.assets[]; .name != "pulse-update.json") and ([.assets[] | {id,name,size,digest,updated_at}] | sort_by(.name)) == ([$original[0].assets[] | {id,name,size,digest,updated_at}] | sort_by(.name))' "$RELEASE_WORKSPACE/before-upload.json" >/dev/null
           gh release upload "$tag" "$RELEASE_WORKSPACE/assets/pulse-update.json"
-          gh api "repos/$GH_REPO/releases/tags/$tag" > "$RELEASE_WORKSPACE/complete-draft.json"
+          gh api "repos/$GH_REPO/releases/$RELEASE_ID" > "$RELEASE_WORKSPACE/complete-draft.json"
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import fs from 'node:fs/promises';
