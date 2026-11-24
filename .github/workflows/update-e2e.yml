@@ -9,10 +9,15 @@ on:
         required: true
         default: '1.26.0'
       baseline_version:
-        description: 'Throwaway lower version stamped only into this runner build'
+        description: 'Lower version to install, either published or stamped into a throwaway build'
         type: string
         required: true
         default: '1.25.9'
+      published_baseline:
+        description: 'Authenticate and install the real published baseline instead of building a throwaway version'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -51,9 +56,10 @@ jobs:
         env:
           TARGET_VERSION: ${{ inputs.target_version }}
           BASELINE_VERSION: ${{ inputs.baseline_version }}
+          PUBLISHED_BASELINE: ${{ inputs.published_baseline || false }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
-          ./scripts/windows-update-e2e.ps1 -TargetVersion $env:TARGET_VERSION -BaselineVersion $env:BASELINE_VERSION -ReportDirectory (Join-Path $env:RUNNER_TEMP 'pulse-update-e2e-report')
+          ./scripts/windows-update-e2e.ps1 -TargetVersion $env:TARGET_VERSION -BaselineVersion $env:BASELINE_VERSION -PublishedBaseline:($env:PUBLISHED_BASELINE -eq 'true') -ReportDirectory (Join-Path $env:RUNNER_TEMP 'pulse-update-e2e-report')
 
       - name: Upload update proof and smoke results
         if: always()

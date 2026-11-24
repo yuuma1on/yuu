@@ -11,6 +11,8 @@ param(
     [ValidatePattern('^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$')]
     [string] $BaselineVersion,
 
+    [switch] $PublishedBaseline,
+
     [Parameter(Mandatory)]
     [string] $ReportDirectory
 )
@@ -38,7 +40,7 @@ $report = [ordered]@{
     ok = $false
     repository = 'yuuma1on/yuu'
     sourceCommit = $env:GITHUB_SHA
-    baselineKind = 'Current source stamped with a throwaway lower version'
+    baselineKind = $(if ($PublishedBaseline) { 'Authenticated published release' } else { 'Current source stamped with a throwaway lower version' })
     baselineVersion = $BaselineVersion
     targetVersion = $TargetVersion
     productionFeed = 'https://github.com/yuuma1on/yuu/releases/latest/download/pulse-update.json'
@@ -92,6 +94,9 @@ function Invoke-DemoSmoke([string] $ExpectedVersion, [string] $Label) {
     if ($result.ok -ne $true -or $result.appVersion -cne $ExpectedVersion -or $result.nodeAvailable -ne $false -or $result.secureContext -ne $true -or $result.workerAvailable -ne $true -or $result.desktopBridge -ne $true -or [Math]::Abs([double]$result.bpm - 120) -ge 0.05) {
         throw "$Label did not prove the expected version, sandbox, secure context, and demo analysis."
     }
+    if ($null -ne $result.PSObject.Properties['displayedVersion'] -and $result.displayedVersion -cne "v$ExpectedVersion") {
+        throw "$Label did not display the installed version."
+    }
     return $result
 }
 
@@ -117,16 +122,48 @@ const {MANIFEST_URL, fetchReleaseBytes, verifyEnvelope, verifyBytes, verifyUpdat
     $report.preflight = ($preflightOutput -join "`n") | ConvertFrom-Json
     Write-JsonReport 'preflight.json' $report.preflight
 
-    Write-Host "Building a disposable $BaselineVersion baseline; no release is created."
-    & npm version $BaselineVersion --no-git-tag-version --ignore-scripts --allow-same-version
-    if ($LASTEXITCODE -ne 0) { throw 'Could not stamp the throwaway baseline version.' }
-    & npm run build:win
-    if ($LASTEXITCODE -ne 0) { throw 'Throwaway baseline build failed.' }
-    $baselineInstaller = Join-Path $repository "dist/PULSE-Setup-$BaselineVersion-x64.exe"
-    if (-not (Test-Path -LiteralPath $baselineInstaller -PathType Leaf)) { throw 'Throwaway baseline installer is missing.' }
+    if ($PublishedBaseline) {
+        Write-Host "Authenticating the real published $BaselineVersion installer."
+        $baselineDirectory = Join-Path $testRoot 'published-baseline'
+        New-Item -ItemType Directory -Path $baselineDirectory | Out-Null
+        $publishedProgram = @'
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const {fetchReleaseBytes, verifyEnvelope, verifyBytes, verifyUpdateInfo, verifyInstaller} = require('./desktop/update-manifest.cjs');
+(async () => {
+  const version = process.argv[1], directory = process.argv[2];
+  const base = `https://github.com/yuuma1on/yuu/releases/download/v${version}/`;
+  const envelope = await fetchReleaseBytes(base + 'pulse-update.json', {maxBytes: 65536});
+  const signed = verifyEnvelope(envelope, await fs.readFile('./desktop/update-public-key.pem'), {currentVersion: '0.0.0'});
+  if (signed.manifest.version !== version || signed.feedUrl !== base) throw new Error('Published baseline version does not match its authenticated envelope.');
+  const metadata = await fetchReleaseBytes(base + 'latest.yml', {maxBytes: 65536});
+  verifyBytes(metadata, signed.manifest.latestYml);
+  verifyUpdateInfo(require('yaml').parse(metadata.toString('utf8')), signed.manifest);
+  const artifact = signed.manifest.installer;
+  const filename = path.join(directory, artifact.name);
+  const bytes = await fetchReleaseBytes(artifact.url, {maxBytes: artifact.size, timeoutMs: 120000});
+  await fs.writeFile(filename, bytes, {flag: 'wx'});
+  await verifyInstaller(filename, artifact, directory);
+  console.log(JSON.stringify({version, signatureVerified: true, metadataVerified: true, installerVerified: true, installerName: artifact.name, installerSha512: artifact.sha512, installerSize: artifact.size}));
+})().catch(error => { console.error(error.message); process.exitCode = 1; });
+'@
+        $publishedOutput = & node --input-type=commonjs -e $publishedProgram $BaselineVersion $baselineDirectory
+        if ($LASTEXITCODE -ne 0) { throw 'Published baseline authentication or exact installer download failed.' }
+        $report.publishedBaseline = ($publishedOutput -join "`n") | ConvertFrom-Json
+        Write-JsonReport 'published-baseline.json' $report.publishedBaseline
+        $baselineInstaller = Join-Path $baselineDirectory "PULSE-Setup-$BaselineVersion-x64.exe"
+    } else {
+        Write-Host "Building a disposable $BaselineVersion baseline; no release is created."
+        & npm version $BaselineVersion --no-git-tag-version --ignore-scripts --allow-same-version
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stamp the throwaway baseline version.' }
+        & npm run build:win
+        if ($LASTEXITCODE -ne 0) { throw 'Throwaway baseline build failed.' }
+        $baselineInstaller = Join-Path $repository "dist/PULSE-Setup-$BaselineVersion-x64.exe"
+    }
+    if (-not (Test-Path -LiteralPath $baselineInstaller -PathType Leaf)) { throw 'Baseline installer is missing.' }
     $report.baselineInstallerSha256 = (Get-FileHash -LiteralPath $baselineInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    Write-Host "Installing the throwaway $BaselineVersion baseline."
+    Write-Host "Installing baseline $BaselineVersion."
     $setup = Start-Process -FilePath $baselineInstaller -ArgumentList @('/S', "/D=$installRoot") -PassThru
     if (-not $setup.WaitForExit(120000)) {
         Stop-Process -Id $setup.Id -Force -ErrorAction SilentlyContinue
