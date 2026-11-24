@@ -109,6 +109,17 @@ gh release edit "$pulse_tag" --repo "$pulse_repo" --draft=false --latest
 
 最後の公開コマンドは確認が成功してから実行します。不完全なdraftは公開せず、公開後の修正は番号を上げた新しいReleaseとして配信します。
 
+## 現在のGitHub接続で公開する場合
+
+この接続ではActions資産のAzure保管先が通信拒否され、`uploads.github.com`への直接追加も401になりました。上記の直接アップロード手順は、Release資産を書き込める資格情報を持つ管理者向けです。この接続では、次の2つのworkflowを使います。
+
+1. **Stage tested assets in a release draft**へ成功したmainの`run_id`と`version`を渡します。検証済みの3資産をGitHub内でdraftへ移し、公開は行いません。
+2. `gh release download`でdraftの3資産を取得し、同じテスト済みソースと既存秘密鍵でローカル署名します。
+3. 作成した公開可能な`pulse-update.json`の正確なバイト列を`release-manifests/v<version>.json`へ、説明文を`release-manifests/v<version>-notes.txt`へ保存し、mainへコミットします。秘密鍵はコピーしません。
+4. **Publish an authenticated tested release**へ同じ`run_id`と`version`を渡します。workflowがdraftの元コミット、署名・全ファイルのハッシュ、4資産の内容を照合し、署名済みmanifestの追加後に公開します。ビルドのやり直しや既存資産の上書きは行いません。
+
+この手順でGitHubへ送るのは公開用署名だけです。CIへ秘密鍵を登録せずに、利用者向けの自動更新を配信できます。
+
 ## 将来CI署名を有効にする所有者の作業
 
 現workflowはビルド、署名、公開を分離しています。署名ジョブは新しいrunnerで`npm ci --ignore-scripts`を使い、鍵を署名コマンドだけへ渡します。公開ジョブだけが`contents: write`を持ちます。
