@@ -1,8 +1,8 @@
 const {EventEmitter}=require('node:events');
 const {MANIFEST_URL,verifyEnvelope,verifyBytes,verifyUpdateInfo,verifyInstaller,fetchReleaseBytes}=require('./update-manifest.cjs');
 class UpdateController extends EventEmitter{
- constructor({updater,publicKey,currentVersion,cacheRoot,supported,fetchBytes=fetchReleaseBytes,verifyFile=verifyInstaller}){
-  super();Object.assign(this,{updater,publicKey,currentVersion,cacheRoot,fetchBytes,verifyFile});
+ constructor({updater,publicKey,currentVersion,cacheRoot,supported,fetchBytes=fetchReleaseBytes,verifyFile=verifyInstaller,launchInstaller}){
+  super();Object.assign(this,{updater,publicKey,currentVersion,cacheRoot,fetchBytes,verifyFile,launchInstaller});
   this.supported=supported;this.state={status:supported?'idle':'unsupported',appVersion:currentVersion};this.transaction=null;this.inFlight=null;this.installing=false;
   updater.autoDownload=false;updater.autoInstallOnAppQuit=false;updater.allowDowngrade=false;updater.allowPrerelease=false;
   updater.disableWebInstaller=true;updater.disableDifferentialDownload=true;
@@ -48,9 +48,12 @@ class UpdateController extends EventEmitter{
   const tx=this.transaction;
   try{
    verifyEnvelope(tx.envelope,this.publicKey,{currentVersion:this.currentVersion});
-   await this.verifyFile(tx.filename,tx.manifest.installer,this.cacheRoot);
+   const filename=await this.verifyFile(tx.filename,tx.manifest.installer,this.cacheRoot);
    if(tx!==this.transaction)throw new Error('UPDATE_TRANSACTION_CHANGED');
-   this.installing=true;this.updater.quitAndInstall(true,restart);
+   if(typeof this.launchInstaller!=='function')throw new Error('INSTALLER_LAUNCH_UNAVAILABLE');
+   this.installing=true;
+   await this.launchInstaller(filename,{restart});
+   return{version:tx.manifest.version,installerLaunched:true};
   }catch(error){this.installing=false;this.transaction=null;this.set({status:'error',message:'更新ファイルを確認できませんでした。もう一度更新を確認してください。'});throw error;}
  }
 }

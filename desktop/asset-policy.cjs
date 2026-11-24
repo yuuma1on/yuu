@@ -26,4 +26,13 @@ function permittedTjaFile(permission,origin,details={}){
   typeof details.filePath==='string'&&path.isAbsolute(details.filePath)&&path.extname(details.filePath).toLowerCase()==='.tja'&&
   ['readable','writable'].includes(details.fileAccessType);
 }
-module.exports={ORIGIN,trustedUrl,resolveAsset,permittedTjaFile};
+function createTjaPermissions(){
+ const writes=new Set();
+ const key=file=>process.platform==='win32'?path.resolve(file).toLowerCase():path.resolve(file);
+ return{
+  check(permission,origin,details={}){return permittedTjaFile(permission,origin,details)&&(details.fileAccessType==='readable'||writes.has(key(details.filePath)));},
+  grantWrite(permission,origin,details={}){if(!permittedTjaFile(permission,origin,details)||details.fileAccessType!=='writable')return false;writes.add(key(details.filePath));return true;},
+  clear(){writes.clear();}
+ };
+}
+module.exports={ORIGIN,trustedUrl,resolveAsset,permittedTjaFile,createTjaPermissions};

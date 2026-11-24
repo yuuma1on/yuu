@@ -4,10 +4,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import policy from '../desktop/asset-policy.cjs';
-const{trustedUrl,resolveAsset,permittedTjaFile}=policy;
+const{trustedUrl,resolveAsset,permittedTjaFile,createTjaPermissions}=policy;
 test('trusted origin checks scheme/host/credentials rather than URL.origin null',()=>{
  assert.equal(trustedUrl('pulse://app/index.html'),true);
  for(const value of['https://app/index.html','pulse://attacker/index.html','pulse://app.attacker/index.html','pulse://user@app/index.html','file:///tmp/index.html','data:text/html,hello'])assert.equal(trustedUrl(value),false);
+});
+test('TJA writes require an explicit per-file grant and are revoked on navigation',()=>{
+ const grants=createTjaPermissions(),origin='pulse://app',file={filePath:path.join(os.tmpdir(),'chosen.tja'),isDirectory:false,fileAccessType:'writable'};
+ assert.equal(grants.check('fileSystem',origin,{...file,fileAccessType:'readable'}),true);
+ assert.equal(grants.check('fileSystem',origin,file),false);
+ assert.equal(grants.grantWrite('fileSystem','https://evil.example',file),false);
+ assert.equal(grants.grantWrite('fileSystem',origin,file),true);assert.equal(grants.check('fileSystem',origin,file),true);
+ assert.equal(grants.check('fileSystem',origin,{...file,filePath:path.join(os.tmpdir(),'other.tja')}),false);
+ grants.clear();assert.equal(grants.check('fileSystem',origin,file),false);
 });
 test('asset resolver serves only local web/UI files and rejects escaped/symlinked files',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'pulse-assets-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));

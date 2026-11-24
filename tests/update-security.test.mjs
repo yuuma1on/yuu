@@ -53,7 +53,7 @@ test('HTTP redirects outside the pinned GitHub/CDN transport and oversized strea
 test('cached installer is constrained to the app cache and verified again after a local mutation',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'pulse-cache-test-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const cache=path.join(root,'cache');await fs.mkdir(cache);const file=path.join(cache,'update.exe');await fs.writeFile(file,installer);
- assert.equal(await verifyInstaller(file,payload().installer,cache),file);
+ assert.equal(await verifyInstaller(file,payload().installer,cache),await fs.realpath(file));
  const outside=path.join(root,'outside.exe');await fs.writeFile(outside,installer);await assert.rejects(verifyInstaller(outside,payload().installer,cache));
  await fs.writeFile(file,Buffer.alloc(installer.length));await assert.rejects(verifyInstaller(file,payload().installer,cache));
 });
@@ -63,13 +63,19 @@ async function setup(t,{badEnvelope=false,badInfo=false,supported=true}={}){
  const file=path.join(root,'cached.exe');await fs.writeFile(file,installer);
  class Updater extends EventEmitter{constructor(){super();this.checks=0;this.downloads=0;this.installs=[];}setFeedURL(value){this.feed=value;}async checkForUpdates(){this.checks++;return{updateInfo:badInfo?{...info(),version:'9.0.0'}:info()};}async downloadUpdate(){this.downloads++;this.emit('download-progress',{percent:70});return[file];}quitAndInstall(...args){this.installs.push(args);}}
  const updater=new Updater();let fetches=0;
- const controller=new UpdateController({updater,publicKey:keys.publicKey,currentVersion:'1.26.0',cacheRoot:root,supported,fetchBytes:async url=>{fetches++;return url===MANIFEST_URL?(badEnvelope?Buffer.from('{}'):envelope()):metadata;}});
+ const controller=new UpdateController({updater,publicKey:keys.publicKey,currentVersion:'1.26.0',cacheRoot:root,supported,launchInstaller:async(filename,options)=>updater.installs.push({filename,...options}),fetchBytes:async url=>{fetches++;return url===MANIFEST_URL?(badEnvelope?Buffer.from('{}'):envelope()):metadata;}});
  return{controller,updater,file,fetches:()=>fetches};
 }
 test('single-flight check authenticates before download and installs only after final recheck',async t=>{
  const{controller:c,updater:u}=await setup(t);const a=c.check(),b=c.check();assert.equal(a,b);assert.equal((await a).status,'ready');assert.equal(u.checks,1);assert.equal(u.downloads,1);
  assert.equal(u.autoDownload,false);assert.equal(u.autoInstallOnAppQuit,false);assert.equal(u.disableDifferentialDownload,true);assert.equal(u.disableWebInstaller,true);
- const i=c.install(),j=c.install();assert.equal(i,j);await i;assert.deepEqual(u.installs,[[true,true]]);
+ const i=c.install(),j=c.install();assert.equal(i,j);await i;assert.equal(u.installs.length,1);assert.equal(u.installs[0].restart,true);
+});
+test('failed native launch resets install state and permits a fresh verified retry',async t=>{
+ const{controller:c,updater:u}=await setup(t);await c.check();
+ c.launchInstaller=async()=>{await new Promise(resolve=>setImmediate(resolve));throw Object.assign(new Error('Access denied'),{code:'EACCES'});};
+ await assert.rejects(c.install(),{code:'EACCES'});assert.equal(c.installing,false);assert.equal(c.getState().status,'error');assert.equal(c.transaction,null);
+ assert.equal((await c.check()).status,'ready');c.launchInstaller=async()=>u.installs.push('launched');await c.install();assert.deepEqual(u.installs,['launched']);
 });
 test('unsigned or mismatched metadata never download or install',async t=>{
  for(const options of[{badEnvelope:true},{badInfo:true}]){const{controller:c,updater:u}=await setup(t,options);assert.equal((await c.check()).status,'error');assert.equal(u.downloads,0);assert.equal(u.installs.length,0);await assert.rejects(c.install());}

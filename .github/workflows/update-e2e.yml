@@ -1,0 +1,65 @@
+name: Authenticated Windows update E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: 'Already published stable/latest version to install through the real updater'
+        type: string
+        required: true
+        default: '1.26.0'
+      baseline_version:
+        description: 'Throwaway lower version stamped only into this runner build'
+        type: string
+        required: true
+        default: '1.25.9'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authenticated-update-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update-e2e:
+    if: github.repository == 'yuuma1on/yuu'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out updater source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run security and asset tests
+        run: npm test
+
+      - name: Build, install, and update through the public authenticated feed
+        shell: pwsh
+        env:
+          TARGET_VERSION: ${{ inputs.target_version }}
+          BASELINE_VERSION: ${{ inputs.baseline_version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          ./scripts/windows-update-e2e.ps1 -TargetVersion $env:TARGET_VERSION -BaselineVersion $env:BASELINE_VERSION -ReportDirectory (Join-Path $env:RUNNER_TEMP 'pulse-update-e2e-report')
+
+      - name: Upload update proof and smoke results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pulse-authenticated-update-e2e
+          path: ${{ runner.temp }}/pulse-update-e2e-report/*.json
+          if-no-files-found: warn
+          retention-days: 14

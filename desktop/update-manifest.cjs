@@ -44,15 +44,33 @@ function verifyUpdateInfo(info,manifest){
 }
 async function verifyInstaller(filename,artifact,cacheRoot){
  if(typeof filename!=='string'||!path.isAbsolute(filename)||path.extname(filename).toLowerCase()!=='.exe')fail('INVALID_INSTALLER_PATH');
- const realRoot=await fs.promises.realpath(cacheRoot),real=await fs.promises.realpath(filename),relative=path.relative(realRoot,real);
- if(relative.startsWith('..'+path.sep)||path.isAbsolute(relative))fail('INSTALLER_OUTSIDE_CACHE');
- if((await fs.promises.lstat(filename)).isSymbolicLink())fail('INSTALLER_SYMLINK');
+ const realRoot=await fs.promises.realpath(cacheRoot);
+ // BigInt preserves the complete file ID on Windows and inode on Unix.
+ // Timestamps alone cannot identify the file a pathname currently names.
+ const sameFile=(a,b)=>a.isFile()&&b.isFile()&&a.ino!==0n&&a.dev===b.dev&&a.ino===b.ino;
+ const inspect=async()=>{
+  const named=await fs.promises.lstat(filename,{bigint:true});
+  if(named.isSymbolicLink())fail('INSTALLER_SYMLINK');
+  const real=await fs.promises.realpath(filename),relative=path.relative(realRoot,real);
+  if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))fail('INSTALLER_OUTSIDE_CACHE');
+  const resolved=await fs.promises.lstat(real,{bigint:true});
+  if(resolved.isSymbolicLink())fail('INSTALLER_SYMLINK');
+  if(!sameFile(named,resolved))fail('INSTALLER_FILE_CHANGED');
+  return{real,stat:resolved};
+ };
+ const initial=await inspect(),real=initial.real;
  const handle=await fs.promises.open(real,'r');
  try{
-  const before=await handle.stat();if(!before.isFile()||before.size!==artifact.size)fail('ARTIFACT_HASH_MISMATCH');
+  const before=await handle.stat({bigint:true});
+  if(!sameFile(initial.stat,before))fail('INSTALLER_FILE_CHANGED');
+  if(before.size!==BigInt(artifact.size))fail('ARTIFACT_HASH_MISMATCH');
   const hash=crypto.createHash('sha512');for await(const chunk of handle.createReadStream({autoClose:false}))hash.update(chunk);
-  const after=await handle.stat();
-  if(after.size!==before.size||after.mtimeMs!==before.mtimeMs||hash.digest('base64')!==artifact.sha512)fail('ARTIFACT_HASH_MISMATCH');
+  const after=await handle.stat({bigint:true});
+  if(!sameFile(before,after)||after.size!==before.size||after.mtimeNs!==before.mtimeNs||after.ctimeNs!==before.ctimeNs||hash.digest('base64')!==artifact.sha512)fail('ARTIFACT_HASH_MISMATCH');
+  // A rename can leave the hashed descriptor unchanged while replacing its
+  // pathname. Recheck both the caller's path and the canonical returned path.
+  const current=await inspect();
+  if(current.real!==real||!sameFile(after,current.stat))fail('INSTALLER_FILE_CHANGED');
  }finally{await handle.close();}
  return real;
 }

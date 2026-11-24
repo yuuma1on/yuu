@@ -113,7 +113,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installer = Join-Path $PWD "dist/PULSE-Setup-$($env:APP_VERSION)-x64.exe"
           $installDir = Join-Path $env:RUNNER_TEMP 'pulse-smoke'
-          $smokeOutput = Join-Path $env:RUNNER_TEMP "pulse-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          $smokeOutput = Join-Path ([IO.Path]::GetTempPath()) "pulse-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
           if (Test-Path $smokeOutput) { throw 'Smoke output already exists.' }
           $setup = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installDir") -PassThru
           if (-not $setup.WaitForExit(120000)) { Stop-Process -Id $setup.Id -Force; throw 'Installer timed out.' }
@@ -124,6 +124,7 @@ jobs:
           if (-not $app.WaitForExit(40000)) { Stop-Process -Id $app.Id -Force; throw 'Packaged app smoke test timed out.' }
           if ($app.ExitCode -ne 0 -or -not (Test-Path -PathType Leaf $smokeOutput)) { throw 'Packaged app smoke test failed.' }
           $result = Get-Content -Raw $smokeOutput | ConvertFrom-Json
+          Get-Content -Raw $smokeOutput
           if ($result.ok -ne $true -or $result.appVersion -cne $env:APP_VERSION -or $result.nodeAvailable -ne $false -or $result.secureContext -ne $true -or $result.bpm -ne 120) {
             throw 'Packaged app did not pass demo, sandbox, version, and secure-context checks.'
           }
