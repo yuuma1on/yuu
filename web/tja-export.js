@@ -19,6 +19,8 @@ export function buildTimingDraft(result,options={}){
  if(result.tempoAmbiguous)warnings.push('拍単位に複数の解釈があります。現在の元推定をそのまま出力します。');
  if(finite(result.confidence)&&result.confidence<.5)warnings.push('元解析の拍の確信度が低めです。出力精度を保証しません。');
  const duration=result.duration;if(!finite(duration)||duration<=0||duration>86400)return fail('音源の長さが不正です。');
+ if(result.tempoModel==='regional-candidates')return fail('局所の周期候補から全曲のTJAは書き出せません。確認済みの譜面や拍位置で、全曲のBPM・区間・拍子を検証してください。');
+ if(!['manual','constant-clock'].includes(result.tempoModel)&&result.bpm===null&&Array.isArray(result.beats)&&!result.beats.length&&Array.isArray(result.sections)&&!result.sections.length)return fail('BPMを推定できないためTJAは保存できません。別の音源で再解析するか、確認済みの譜面や拍位置でBPMを検証してください。');
  let sections=[];
  if(result.tempoModel==='manual'){
   if(!Array.isArray(result.sections)||!result.sections.length)return fail('手動区間がありません。');

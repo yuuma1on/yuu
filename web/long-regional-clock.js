@@ -1,4 +1,4 @@
-import {verifySteadyClock} from './steady-clock.js?v=30';
+import {verifySteadyClock} from './steady-clock.js?v=34';
 import {buildRegionalReference as buildLegacyReference,compareRegionalClockEvidence} from './regional-clocks.js?v=29';
 const good=x=>Number.isFinite(x)&&x>0;
 const distance=(a,b)=>good(a)&&good(b)?Math.abs(Math.log2(a/b)):Infinity;

@@ -1,4 +1,4 @@
-import { discoverClocks } from './steady-clock.js?v=25';
+import { discoverClocks } from './steady-clock.js?v=34';
 
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const median=a=>{const s=a.filter(Number.isFinite).sort((x,y)=>x-y);return s[Math.floor(s.length/2)]||0;};
@@ -55,6 +55,9 @@ export function estimateLocalClockPath(data,options={},signalHelpers=options.hel
     const retained=[];for(const c of candidates){if(retained.every(v=>Math.abs(Math.log2(v.bpm/c.bpm))>.015))retained.push(c);if(retained.length>=20)break;}
     retained.push({bpm:null,score:.10,supported:false,coherence:0,reason:'insufficient-independent-clock-evidence'});
     windows.push(retained);
+    if (windows.length % 32 === 0 && typeof options.onWindow === 'function') {
+      options.onWindow(windows.length / centers.length);
+    }
   }
   const back=windows.map(w=>new Uint16Array(w.length));let previous=Float64Array.from(windows[0],c=>c.score);
   const continuity=options.continuityWeight??.65;

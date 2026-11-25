@@ -1,4 +1,4 @@
-import {buildTimingDraft} from './tja-export.js';
+import {buildTimingDraft} from './tja-export.js?v=34';
 const MAX_BYTES=2_000_000;
 const COMMANDS=new Set(['BPMCHANGE','MEASURE','SCROLL','GOGOSTART','GOGOEND','BARLINEON','BARLINEOFF','LYRIC']);
 const basename=s=>s.replace(/\\/g,'/').split('/').at(-1).normalize('NFC').toLowerCase();

@@ -100,6 +100,26 @@ function Invoke-DemoSmoke([string] $ExpectedVersion, [string] $Label) {
     return $result
 }
 
+function Invoke-RegionalSmoke([string] $ExpectedVersion, [string] $Label) {
+    $output = Join-Path $testRoot "$Label.json"
+    if (Test-Path $output) { throw 'Regional smoke output must be a new file.' }
+    $process = Start-Process -FilePath $executable -ArgumentList @('--regional-smoke-test', ('"--smoke-output={0}"' -f $output)) -PassThru
+    if (-not $process.WaitForExit(150000)) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "$Label timed out."
+    }
+    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $output -PathType Leaf)) { throw "$Label failed." }
+    $result = Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+    Write-JsonReport "$Label.json" $result
+    if ($result.ok -ne $true -or $result.appVersion -cne $ExpectedVersion -or $result.displayedVersion -cne "v$ExpectedVersion" -or $result.nodeAvailable -ne $false -or $result.secureContext -ne $true -or $result.regionalCandidates -lt 1 -or $result.fullTrackTimingEmpty -ne $true -or $result.tjaGuarded -ne $true -or $result.tjaDownloads -ne 0 -or $result.progressMonotonic -ne $true -or $result.referenceDidNotMutateAnalysis -ne $true) {
+        throw "$Label did not prove regional candidates and TJA guards in the updated installed app."
+    }
+    if ($result.localReferenceMatched -ne $true -or $result.localReferenceMatchingSeconds -ne 4 -or $result.referenceComparisonVisible -ne $true -or $result.wholeTrackCoveragePercent -ne 0 -or $result.wholeTrackDirectAgreementPercent -ne 0) {
+        throw "$Label did not prove the actual local reference match without inflating full-track coverage."
+    }
+    return $result
+}
+
 Push-Location $repository
 try {
     Write-Host "Checking the public authenticated release feed for $TargetVersion."
@@ -202,6 +222,9 @@ const {fetchReleaseBytes, verifyEnvelope, verifyBytes, verifyUpdateInfo, verifyI
             $attempt++
             try {
                 $finalSmoke = Invoke-DemoSmoke $TargetVersion "updated-smoke-$attempt"
+                if ($finalSmoke.regionalSmokeAvailable -eq $true) {
+                    $report.updatedRegionalSmoke = Invoke-RegionalSmoke $TargetVersion "updated-regional-smoke-$attempt"
+                }
                 $report.installedAfter = $versions
                 $report.updatedSmoke = $finalSmoke
                 break

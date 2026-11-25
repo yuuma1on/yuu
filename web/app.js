@@ -1,11 +1,11 @@
-import { deriveConstantExportBlockers } from './export-blockers.js?v=23';
-import { getTjaExportAction, requestTjaDownload } from './tja-export-status.js?v=24';
-import { mountTjaReplacement } from './tja-replace-ui.js?v=24';
+import { deriveConstantExportBlockers } from './export-blockers.js?v=34';
+import { getTjaExportAction, requestTjaDownload } from './tja-export-status.js?v=34';
+import { mountTjaReplacement } from './tja-replace-ui.js?v=34';
 import { tjaFileName } from './tja-save.js?v=24';
-import { buildTimingDraft } from './tja-export.js?v=20';
+import { buildTimingDraft } from './tja-export.js?v=34';
 import { deriveUnresolvedTempoIntervals } from './unresolved-gaps.js?v=20';
-import { getTempoDisplaySummary } from './tempo-display.js?v=20';
-import { listTjaCharts, parseTjaReference, compareTjaReference, generateTjaReferenceBeats } from './tja-reference.js?v=33';
+import { formatTempoDisplayBpm, getTempoDisplaySummary } from './tempo-display.js?v=34';
+import { listTjaCharts, parseTjaReference, compareTjaReference, generateTjaReferenceBeats } from './tja-reference.js?v=34';
 import { parseAnchors, measureAnchors, preciseInput } from './precision.js?v=20';
 import { createSteadyDemo, createGapDemo, createVariableDemo, createRapidVariableDemo, createOneBarAccelerationDemo } from './demo.js?v=28';
 import { detectTempoChanges, annotateTempoChangeEvidence } from './tempo-changes.js?v=29';
@@ -27,6 +27,15 @@ const fmt = (seconds,precision=1) => {
 const num = value => Number.isFinite(value) ? value.toFixed(1) : '—';
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const median = values=>{const a=values.filter(Number.isFinite).sort((a,b)=>a-b);return a.length?a[Math.floor(a.length/2)]:null;};
+function regionalCandidateCount(result){
+  if(result?.tempoModel!=='regional-candidates')return null;
+  return (result.tempoRegions||[]).filter(region=>Number.isFinite(region.start)&&Number.isFinite(region.end)&&region.start>=0&&region.end>=region.start&&region.end<=result.duration+.01&&Number.isFinite(region.bpm)&&region.bpm>0).length;
+}
+function analysisCompletionMessage(result){
+  const count=regionalCandidateCount(result);
+  if(count!==null)return count?`${count}件の局所周期候補が見つかりました。区間候補の一覧から試聴できます。`:'全曲のBPMと局所周期の候補を特定できませんでした。解析結果のヒントを確認してください。';
+  return result?.bpm?'解析が完了しました。候補を比較し、クリック音で確認できます。':'明確な周期を検出できませんでした。別の音源や区間をお試しください。';
+}
 function toast(message){$('toast').hidden=false;$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>{$('toast').classList.remove('visible');$('toast').hidden=true;},4200);}
 function progress(value,text){$('progressPanel').hidden=false;$('progressText').textContent=text;$('progressBar').style.width=`${clamp(value,0,1)*100}%`;$('progressBar').setAttribute('aria-valuenow',Math.round(value*100));}
 function controls(){ tjaReplacement.setBusy(state.busy); $('tjaConfirmedMeter').disabled=state.busy; $('previewTjaBtn').disabled=state.busy||!state.result;updateTjaExportAction(); $('gapDemoBtn').disabled=state.busy; $('variableDemoBtn').disabled=state.busy; $('variableDemoKind').disabled=state.busy;for(const btn of $('unresolvedGapRows').querySelectorAll('button'))btn.disabled=state.busy; $('bpmDisplayScale').disabled=state.busy; $('clickSource').disabled=state.busy; $('referenceClickOption').disabled=!referenceBeats.length; for(const id of ['chooseReference','readReference','referenceCourse','referenceFile'])$(id).disabled=state.busy; $('clearReference').disabled=state.busy||!reference; $('analyzeBtn').disabled=!state.file||state.busy;$('demoBtn').disabled=state.busy;$('chooseFileBtn').disabled=state.busy;$('cancelBtn').hidden=!state.busy;$('fileInput').disabled=state.busy;for(const id of ['halfTempoBtn','doubleTempoBtn'])$(id).disabled=state.busy||!getTempoReanalysis(state.result);for(const btn of $('tempoHypotheses').children)btn.disabled=state.busy;for(const id of ['tempoChangesList','tempoRegionsList'])for(const btn of $(id).querySelectorAll('button'))btn.disabled=state.busy; }
@@ -64,14 +73,14 @@ async function analyze(hint=null,pulseScale=null){
     state.duration=decoded.duration;state.peaks=waveformPeaks(samples);state.analysisSamples=samples;state.analysisRate=decoded.sampleRate;
     }
     const samples=state.analysisSamples.slice();progress(.12,tempoHint?`${num(tempoHint)} BPMの拍解釈でテンポと拍子を再解析…`:'音の立ち上がりを抽出しています…');
-    const worker=new Worker(new URL('./worker.js?v=33',import.meta.url),{type:'module'});state.worker=worker;
+    const worker=new Worker(new URL('./worker.js?v=34',import.meta.url),{type:'module'});state.worker=worker;
     worker.onmessage=({data})=>{
       if(revision!==state.revision)return;
       if(data.type==='progress'){progress(.12+data.progress*.85,data.stage||'リズムを解析しています…');return;}
       if(data.type==='error'){fail(data.message);return;}
       if(data.type==='result'){
         correctionHistory=[];$('undoCorrection').disabled=true;state.result=data.result;state.activeHint=tempoHint;state.selected=0;state.selectedChange=-1;state.selectedRegion=-1;state.loop=false;state.busy=false;worker.terminate();state.worker=null;$('loopBtn').setAttribute('aria-pressed','false');$('correctionPanel').hidden=true;$('progressPanel').hidden=true;render();controls();
-        toast(state.result.bpm?'解析が完了しました。候補を比較し、クリック音で確認できます。':'明確な周期を検出できませんでした。別の音源や区間をお試しください。');
+        toast(analysisCompletionMessage(state.result));
       }
     };
     worker.onerror=()=>{if(revision===state.revision)fail('解析中にエラーが発生しました。再読み込みしてお試しください。');};
@@ -83,10 +92,12 @@ async function analyze(hint=null,pulseScale=null){
 function fail(message){state.worker?.terminate();state.worker=null;state.busy=false;$('progressPanel').hidden=true;controls();toast(message);}
 function render(){
   const r=state.result;if(!r)return;
+  const regionalCount=regionalCandidateCount(r),partial=regionalCount!==null;
   resetTjaDraft();
   $('emptyState').hidden=true;$('results').hidden=false;
-  $('trackName').textContent=state.file.name;$('trackMeta').textContent=`${fmt(state.duration)} · ${r.beats.length}拍を検出 · ${r.sections.length}区間`;
-  $('bpmValue').textContent=num(r.bpm);$('bpmRange').textContent=r.tempoModel==='constant-clock'?'一定テンポとして検出':r.bpm?`${num(r.bpmMin)} – ${num(r.bpmMax)} BPM`:'周期が不足しています';
+  $('trackName').textContent=state.file.name;$('trackMeta').textContent=partial?`${fmt(state.duration)} · ${regionalCount}件の局所周期候補 · 全曲の拍は未推定`:`${fmt(state.duration)} · ${r.beats.length}拍を検出 · ${r.sections.length}区間`;
+  const constantIncomplete=r.tempoModel==='constant-clock'&&(r.tempoCurve||[]).some(p=>!Number.isFinite(p?.bpm)||p.bpm<=0||p.tempoGap||p.tempoSource==='uncertain');
+  $('bpmValue').textContent=num(r.bpm);$('bpmRange').textContent=partial?(regionalCount?'全曲BPMは未推定 · 区間候補あり':'全曲BPMは未推定'):r.tempoModel==='constant-clock'?(constantIncomplete?'推定できた箇所は一定 · 未推定や不確かな箇所あり':'一定テンポとして検出'):r.bpm?`${num(r.bpmMin)} – ${num(r.bpmMax)} BPM`:'周期が不足しています';
   const family=meter=>meter==='2/4・4/4'?'4/4':meter;
   const votes=new Map();for(const section of r.sections){if(!section.meter||section.meter==='判定保留'||(!section.manual&&(section.confidence||0)<.45))continue;const meter=family(section.meter),weight=Math.max(0,section.end-section.start)*(section.manual?1:section.confidence);votes.set(meter,(votes.get(meter)||0)+weight);}
   const ranked=[...votes.entries()].sort((a,b)=>b[1]-a[1]),primary=ranked[0]?.[0];
@@ -95,11 +106,11 @@ function render(){
   const changes=primary?r.sections.filter(s=>s.meter&&s.meter!=='判定保留'&&(s.manual&&family(s.meter)!==primary||s.type==='irregularity'||(hasChangeEvidence?s.isMeterChange===true:family(s.meter)!==primary&&s.confidence>=.7))):[];
   $('meterDetail').textContent=!primary?'拍のアクセントが不明瞭です':changes.length?'局所的な変化候補あり · 区間表で確認':'曲全体で最も手掛かりが強い拍子候補';
   const tempoChanges=visibleTempoChanges();
-  $('stabilityValue').textContent=!r.bpm?'—':r.tempoModel==='constant-clock'?'一定テンポ':tempoChanges.length?'変化あり':'判定保留';
-  $('stabilityDetail').textContent=r.tempoModel==='constant-clock'?'音の繰り返しが同じテンポと一致しています':tempoChanges.length?`${tempoChanges.length}件の変化候補 · 下の一覧で試聴できます`:r.bpm?'確かな変化を特定できませんでした':'十分な拍を検出できませんでした';
-  $('confidenceText').textContent=`${r.tempoAmbiguous?'テンポに複数の解釈があります':`周期の手掛かり：${r.confidence>=.65?'強め':r.confidence>=.35?'中程度':'弱め'}`} · 拍子はアクセントからの候補です`;
+  $('stabilityValue').textContent=partial?(regionalCount?'区間候補あり':'判定保留'):!r.bpm?'—':r.tempoModel==='constant-clock'?'一定テンポ':tempoChanges.length?'変化候補あり':'判定保留';
+  $('stabilityDetail').textContent=partial?'局所の周期候補を表示しています。全曲の拍の連続性は未推定です。':r.tempoModel==='constant-clock'?(constantIncomplete?'未推定や不確かな箇所は、グラフとTJA欄で確認できます':'音の繰り返しが同じテンポと一致しています'):tempoChanges.length?`${tempoChanges.length}件の変化候補 · 下の一覧で試聴できます`:r.bpm?'確かな変化を特定できませんでした':'十分な拍を検出できませんでした';
+  $('confidenceText').textContent=partial?'全曲の拍と譜面上の拍単位は未推定です。候補の前後を試聴して周期を確認してください。':`${r.tempoAmbiguous?'テンポに複数の解釈があります':`周期の手掛かり：${r.confidence>=.65?'強め':r.confidence>=.35?'中程度':'弱め'}`} · 拍子はアクセントからの候補です`;
   const reanalysis=getTempoReanalysis(r);
-  $('tempoCandidates').textContent=reanalysis?.manual?`音源全体の${num(reanalysis.bpm)} BPMを基準にした拍解釈です。候補を選ぶと、手動修正を含む結果を音源から再解析します。`:state.activeHint?'拍の取り方を変更して再解析した結果です。曲中のテンポ変化は保ったまま追跡します。':'音源から自動で拍の取り方を比較しています。別候補を選ぶと、拍の位置と拍子も再解析します。';
+  $('tempoCandidates').textContent=partial?'全曲を通したBPMは未推定です。下の区間候補から局所の周期を試聴できます。':reanalysis?.manual?`音源全体の${num(reanalysis.bpm)} BPMを基準にした拍解釈です。候補を選ぶと、手動修正を含む結果を音源から再解析します。`:state.activeHint?'拍の取り方を変更して再解析した結果です。曲中のテンポ変化は保ったまま追跡します。':'音源から自動で拍の取り方を比較しています。別候補を選ぶと、拍の位置と拍子も再解析します。';
   const hypotheses=$('tempoHypotheses');hypotheses.replaceChildren();
   const choices=[{ratio:1,reason:reanalysis?.manual?'音源全体の元の拍解釈で再解析':'現在の結果'},...(r.tempoAlternatives||[])].map(candidate=>{const action=getTempoReanalysis(r,candidate.ratio);return action?{...candidate,...action}:null;}).filter(c=>c&&c.bpm>=10&&c.bpm<=1200);const seen=[];
   for(const candidate of choices){if(seen.some(bpm=>Math.abs(Math.log2(candidate.bpm/bpm))<.045))continue;seen.push(candidate.bpm);if(seen.length>5)break;const btn=document.createElement('button');btn.className='button secondary small-button';btn.textContent=`${num(candidate.bpm)} BPM`;btn.title=candidate.reason||'このテンポ解釈で拍・拍子を再解析';const current=!candidate.manual&&seen.length===1;btn.setAttribute('aria-pressed',String(current));btn.setAttribute('aria-label',`${num(candidate.bpm)} BPMの拍解釈で再解析`);btn.disabled=state.busy;btn.addEventListener('click',()=>analyze(candidate.bpm,candidate.tempoScale));hypotheses.append(btn);}
@@ -113,9 +124,9 @@ function render(){
     for(const [j,value]of values.entries()){const td=document.createElement('td');if(j===1){const badge=document.createElement('span');badge.className='meter-badge';badge.textContent=value;td.append(badge);if(s.alternatives?.length&&!s.manual){const small=document.createElement('small');small.className='meter-alternatives';small.textContent='別候補 '+s.alternatives.slice(0,2).join(' / ');td.append(small);}}else td.textContent=value;row.append(td);}
     const td=document.createElement('td'),btn=document.createElement('button');btn.className='text-btn';btn.textContent='試聴・修正 ↗';btn.addEventListener('click',()=>selectSection(i));td.append(btn);row.append(td);tbody.append(row);
   });
-  if(!r.sections.length){const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.textContent='拍の周期が不明瞭なため、区間を生成できませんでした。';row.append(td);tbody.append(row);}
+  if(!r.sections.length){const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=6;td.textContent=partial?'全曲の拍の連続性が未推定のため、編集用の区間は生成していません。局所候補は上の一覧で確認できます。':'拍の周期が不明瞭なため、区間を生成できませんでした。';row.append(td);tbody.append(row);}
   $('notes').replaceChildren();
-  const notes=[...(r.notes||[]),'拍子の分母（4分音符・8分音符）や6/8と3/4の違いは音源だけでは一意に決まりません。拍子候補・クリック音・実際の演奏を照合してください。'];
+  const notes=[...(r.notes||[]),...(partial?['局所候補は持続する音の周期を示します。全曲のBPMや譜面上の拍単位を確定した結果ではありません。']:[]),'拍子の分母（4分音符・8分音符）や6/8と3/4の違いは音源だけでは一意に決まりません。拍子候補・クリック音・実際の演奏を照合してください。'];
   for(const note of [...new Set(notes)]){const li=document.createElement('li'),hintPrefix=Number.isFinite(r.tempoHint)&&r.tempoHint>0?`選択した${r.tempoHint} BPM付近`:null;li.textContent=hintPrefix&&note.startsWith(hintPrefix)?`選択した${num(r.tempoHint)} BPM付近${note.slice(hintPrefix.length)}`:note;$('notes').append(li);}
   $('duration').textContent=fmt(state.duration);$('seekBar').max=state.duration;$('exportBtn').disabled=false;
   renderTempoDisplay();
@@ -139,6 +150,7 @@ function renderTempoChanges(){
   $('tempoChangeSummary').textContent=changes.length?'時刻とBPMは推定候補です。変化の前から試聴して確認できます。':constant?'一定テンポを検出しました。BPM変化の候補はありません。':'確かなBPM変化を特定できませんでした。グラフと音源を照合してください。';
   empty.hidden=changes.length>0;list.hidden=!changes.length;
   empty.textContent=constant?'周期が明瞭な区間は同じテンポで推定されています。':'手掛かりが弱い区間や細かな変化は、候補にできない場合があります。';
+  if(regionalCandidateCount(state.result)!==null){$('tempoChangeSummary').textContent='全曲のBPM変化は未推定です。下の区間候補から局所の周期を確認できます。';empty.textContent='候補の前後をつなぐ拍の連続性は確認できていません。';}
   changes.forEach((change,index)=>{
     const item=document.createElement('li');item.className='tempo-change-item';item.classList.toggle('selected',index===state.selectedChange);
     const number=document.createElement('span');number.className='tempo-change-number';number.textContent=String(index+1);number.setAttribute('aria-hidden','true');
@@ -149,7 +161,14 @@ function renderTempoChanges(){
     heading.append(label,time);
     const rates=document.createElement('p');rates.className='tempo-change-rates';rates.textContent=`${num(change.fromBpm)} → ${num(change.toBpm)} BPM`;
     const strength=document.createElement('span');strength.className='tempo-change-strength';strength.textContent=(change.confidence??.5)>=.7?'強めの候補':(change.confidence??.5)>=.4?'中程度の候補':'弱めの候補';
-    if(change.ambiguity)strength.textContent+=' · 別の拍解釈あり';
+    const reasons = Array.isArray(change.reviewReasons) ? change.reviewReasons : [];
+    if (change.requiresReview) strength.textContent += ' · 要確認';
+    if (change.ambiguity || reasons.some(reason => typeof reason === 'string' && reason.startsWith('metrical-'))) {
+      strength.textContent += ' · 別の拍解釈あり';
+    }
+    if (reasons.includes('unknown-in-rate-support') || reasons.includes('rate-support-begins-after-unknown')) {
+      strength.textContent += ' · 前後のBPMに未推定箇所あり';
+    }
     const report=change.reportedTiming,uncertainty=report?.uncertainty??change.timeUncertainty;
     if(report?.boundsClipped)strength.textContent+=` · 候補範囲 ${fmt(report.start,2)} — ${fmt(report.end,2)}`;
     else if(Number.isFinite(uncertainty)&&uncertainty>0)strength.textContent+=` · ${change.type==='step'?'推定時刻':'区間端の推定'} ±${uncertainty.toFixed(2)}秒`;
@@ -176,13 +195,16 @@ function visibleTempoRegions(){
 }
 function renderTempoRegions(){
   const regions=visibleTempoRegions(),panel=$('tempoRegionsPanel'),list=$('tempoRegionsList');panel.hidden=!regions.length;list.replaceChildren();
+  const partial=regionalCandidateCount(state.result)!==null;
+  $('tempoRegionsHeading').textContent=partial?'区間の周期候補':'区間のBPM候補';
+  $('tempoRegionsHeading').nextElementSibling.textContent=partial?'音の繰り返しの速さを示す局所候補です。全曲の拍の連続性や譜面上の拍単位は未推定です。':'BPM変化として確定できない区間の候補です。前後を試聴して確認してください。';
   $('tempoRegionsCount').textContent=`${regions.length}件の候補`;
   regions.forEach((region,index)=>{
     const item=document.createElement('li');item.className='tempo-change-item';item.classList.toggle('selected',index===state.selectedRegion);
     const badge=document.createElement('span');badge.className='tempo-region-badge';badge.textContent='候補';
     const details=document.createElement('div');details.className='tempo-change-details';
     const time=document.createElement('strong');time.className='tempo-change-time';time.textContent=`${fmt(region.start,2)} — ${fmt(region.end,2)}`;
-    const rates=document.createElement('p');rates.className='tempo-change-rates';rates.textContent=`${num(region.bpm)} BPM`;
+    const rates=document.createElement('p');rates.className='tempo-change-rates';rates.textContent=`${num(region.bpm)} BPM${partial?'（周期候補）':''}`;
     if(region.ambiguous){const label=document.createElement('span');label.className='tempo-region-ambiguous';label.textContent='複数候補';rates.append(label);}
     const strength=document.createElement('span');strength.className='tempo-change-strength';strength.textContent=(region.confidence??.5)>=.7?'強めの候補':(region.confidence??.5)>=.4?'中程度の候補':'弱めの候補';
     if(Number.isFinite(region.timeUncertainty)&&region.timeUncertainty>0)strength.textContent+=` · 推定時刻 ±${region.timeUncertainty.toFixed(2)}秒`;
@@ -252,7 +274,14 @@ function drawWave(){
 function drawTempo(){
   const c=context($('tempoChart'));if(!c||!state.result)return;const {ctx,w,h}=c;
   const points=state.result.tempoCurve.filter(p=>Number.isFinite(p.bpm)&&p.bpm>0);ctx.clearRect(0,0,w,h);
-  if(!points.length&&!reference){ctx.fillStyle='#7a857c';ctx.font='13px sans-serif';ctx.fillText('テンポの推移を算出できませんでした',24,50);return;}
+  if(!points.length&&!reference){
+    ctx.fillStyle='#7a857c';ctx.font='13px sans-serif';
+    if(regionalCandidateCount(state.result)!==null){
+      ctx.fillText('全曲のテンポは未推定です。',24,50);
+      ctx.fillText('区間候補を確認してください。',24,70);
+    }else ctx.fillText('テンポの推移を算出できませんでした',24,50);
+    return;
+  }
   const values=[...points.map(p=>p.bpm),...(reference?.events||[]).filter(p=>p.time<=state.duration).map(p=>p.bpm)];
   if(!values.length){ctx.fillStyle='#7a857c';ctx.font='13px sans-serif';ctx.fillText('音源の範囲内に表示できる推定・参照BPMがありません',24,50);return;}
   const min=Math.floor(Math.min(...values)/5)*5-5,max=Math.ceil(Math.max(...values)/5)*5+5;
@@ -384,11 +413,28 @@ function renderReference(){
  try{referenceComparison=compareTjaReference(reference,state.result);}catch(error){referenceError(error.message);return;}
  $('referenceStatus').classList.remove('reference-error');$('referenceStatus').textContent=`参照：${reference.title||'タイトル未指定'} · ${reference.course||''} · WAVE: ${reference.wave} · OFFSET: ${reference.offset} 秒。ファイル名の一致は、音源内容や同期の保証ではありません。`;
  const box=$('referenceSummary');box.hidden=false;box.className='reference-metrics';box.textContent=referenceSummaryText(referenceComparison);
+ const regions=referenceComparison.localCandidateRegions;
+ if(regions?.length){
+   const list=document.createElement('ul');
+   for(const region of regions){
+     const item=document.createElement('li');
+     const matches=region.candidates.filter(candidate=>candidate.matchingSeconds>0)
+       .map(candidate=>`${formatTempoDisplayBpm(candidate.bpm,2)} BPM（${candidate.matchingSeconds.toFixed(3)}秒）`);
+     item.textContent=`${fmt(region.start,3)} — ${fmt(region.end,3)}　${matches.length?matches.join('、'):'範囲内に一致する候補なし'}`;
+     list.append(item);
+   }
+   box.append(list);
+ }
  const tbody=$('referenceRows');tbody.replaceChildren();reference.events.slice(0,500).forEach((event,i)=>{const row=document.createElement('tr');for(const text of [(event.time<0?'−':'')+fmt(Math.abs(event.time),3),String(event.bpm)+' BPM'+(i===0?'（初期）':'')]){const td=document.createElement('td');td.textContent=text;row.append(td);}const td=document.createElement('td'),button=document.createElement('button');button.className='text-btn';button.textContent='この位置へ';button.disabled=event.time<0||event.time>state.duration;button.addEventListener('click',()=>{audio.currentTime=clamp(event.time,0,state.duration);$('seekBar').value=audio.currentTime;draw();});td.append(button);row.append(td);tbody.append(row);});$('referenceTableWrap').hidden=false;$('clearReference').disabled=state.busy;
 }
 function referenceSummaryText(c){
  if(!c.available)return c.reason+' 紫の破線は譜面の指定値のみです。';
- return `${state.result?.tempoModel==='manual'?'現在の結果（手動修正を含む）':'音声の推定結果'}との参照比較：${fmt(c.start,3)} — ${fmt(c.end,3)} / ${c.duration.toFixed(3)} 秒。BPM ±${(c.tolerance*100).toFixed(0)}% 一致：${c.directAgreementPercent.toFixed(1)}%（評価時間全体）。推定できた時間：${c.coveragePercent.toFixed(1)}% / 未推定 ${c.unsupportedSeconds.toFixed(3)} 秒。OFFSET自動調整・倍半分の読み替えなし。${reference.events.length>500?'変更一覧は先頭500件を表示。':''}`;
+ const limit=reference.events.length>500?'変更一覧は先頭500件を表示。':'';
+ if(c.localCandidateRegions){
+   if(!c.localCandidateRegions.length)return `曲全体のBPMは未推定です。評価区間には比較できる局所候補がありません。${limit}`;
+   return `曲全体のBPMは未推定です。局所の周期候補が譜面BPMの±${(c.tolerance*100).toFixed(0)}%以内だった時間を表示します。${limit}`;
+ }
+ return `${state.result?.tempoModel==='manual'?'現在の結果（手動修正を含む）':'音声の推定結果'}との参照比較：${fmt(c.start,3)} — ${fmt(c.end,3)} / ${c.duration.toFixed(3)} 秒。BPM ±${(c.tolerance*100).toFixed(0)}% 一致：${c.directAgreementPercent.toFixed(1)}%（評価時間全体）。推定できた時間：${c.coveragePercent.toFixed(1)}% / 未推定 ${c.unsupportedSeconds.toFixed(3)} 秒。OFFSET自動調整・倍半分の読み替えなし。${limit}`;
 }
 $('chooseReference').addEventListener('click',()=>$('referenceFile').click());
 $('referenceFile').addEventListener('change',async()=>{const file=$('referenceFile').files?.[0];if(!file)return;const revision=state.revision,request=++referenceReadRevision;try{if(file.size>1000000)throw new Error('参照TJAは1 MB以下にしてください。');const bytes=await file.arrayBuffer();if(revision!==state.revision||request!==referenceReadRevision)return;let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{text=new TextDecoder('shift_jis',{fatal:true}).decode(bytes);}readReference(text);}catch(error){if(revision===state.revision&&request===referenceReadRevision){clearReference();referenceError(error.message||'UTF-8またはShift_JISのTJAを選んでください。');}}});
@@ -400,6 +446,7 @@ $('clickSource').addEventListener('change',()=>{clearClicks();if($('clickSource'
 
 function renderTempoDisplay(){
  const view=getTempoDisplaySummary(state.result?.bpm,Number($('bpmDisplayScale').value));
+ if(state.result?.tempoModel==='regional-candidates'){$('bpmValue').textContent='—';$('bpmDisplayAlternatives').textContent='局所候補の数値は区間一覧で確認できます。';$('bpmDisplayLabel').textContent='代表テンポ（未推定）';$('bpmDisplayNote').textContent='全曲の代表BPMは未推定です。局所の周期候補から譜面上の拍単位を確認してください。';return;}
  $('bpmValue').textContent=view.text;$('bpmDisplayAlternatives').textContent=view.alternatives.map(item=>`${item.scale===.5?'半分':item.scale===1?'元の値':'倍'} ${item.text} BPM`).join(' · ');
  $('bpmDisplayLabel').textContent=`代表テンポ（表示 ×${view.scale}）`;$('bpmDisplayNote').textContent='表示単位のみ変更。下のグラフ・区間・参照TJA・比較値・クリック位置・書き出しは元の値のままです。倍・半分の表記自体を誤りとは判定しません。';
 }

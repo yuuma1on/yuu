@@ -16,7 +16,14 @@ export function scaleTempoDisplayBpm(bpm, scale = 1) {
 
 export function formatTempoDisplayBpm(value, digits = 1) {
   if (!Number.isInteger(digits) || digits < 0 || digits > 6) throw new RangeError('表示桁数は0〜6の整数にしてください。');
-  return positiveFinite(value) ? value.toFixed(digits) : '—';
+  if (!positiveFinite(value)) return '—';
+  const factor = 10 ** digits, scaled = value * factor;
+  const integral = Math.floor(scaled);
+  // The tempo search can land a few billionths of a BPM below a decimal tie
+  // after accumulating grid increments. Treat that numerical residue as a tie.
+  const atTie = Math.abs(scaled - integral - .5) <= factor * 1e-9;
+  const display = atTie && Number.isSafeInteger(integral + 1) ? (integral + 1) / factor : value;
+  return display.toFixed(digits);
 }
 
 export function getTempoDisplaySummary(rawBpm, scale = 1) {

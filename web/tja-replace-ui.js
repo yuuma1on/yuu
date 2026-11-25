@@ -1,4 +1,4 @@
-import {prepareTjaBodyReplacement} from './tja-replace.js';
+import {prepareTjaBodyReplacement} from './tja-replace.js?v=34';
 import {verifyExistingReplacementBackup,overwriteFromVerifiedBackup} from './tja-replace-save.js?v=24';
 
 export function mountTjaReplacement({getContext,document:doc=globalThis.document,platform=globalThis}){

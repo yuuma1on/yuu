@@ -1,4 +1,5 @@
-import { buildRegionalReference } from './long-regional-clock.js?v=31';
+import { buildRegionalReference } from './long-regional-clock.js?v=34';
+import { findPartialTempoRegions } from './partial-tempo-regions.js?v=34';
 import { detectBeatTempoSteps, mergeBeatTempoSteps } from './beat-tempo-steps.js?v=32';
 import { estimateDirectBodyClocks } from './direct-body-clocks.js?v=29';
 import { verifyPersistentLowClock } from './persistent-low-clock.js?v=29';
@@ -9,10 +10,10 @@ import { detectSmallTempoSteps } from './small-tempo-steps.js?v=17';
  * A time signature is an interpretation, not an observable property of a waveform:
  * the returned meter, alternatives, and confidence deliberately retain that ambiguity.
  */
-import { refineLocalTempo, reconcileBodyTempo } from './tempo-grid.js?v=17';
-import { discoverClocks, verifySteadyClock } from './steady-clock.js?v=30';
+import { refineLocalTempo, reconcileBodyTempo } from './tempo-grid.js?v=34';
+import { discoverClocks, verifySteadyClock } from './steady-clock.js?v=34';
 import { detectTempoChanges, annotateTempoChangeEvidence } from './tempo-changes.js?v=29';
-import { estimateLocalClockPath } from './local-clocks.js?v=25';
+import { estimateLocalClockPath } from './local-clocks.js?v=34';
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 const median = a => { const s = [...a].filter(Number.isFinite).sort((x,y)=>x-y); return s.length?s[Math.floor(s.length/2)]:0; };
 const quantile = (a,q) => { const s = [...a].filter(Number.isFinite).sort((x,y)=>x-y); return s.length?s[Math.min(s.length-1, Math.floor(q*(s.length-1)))]:0; };
@@ -196,39 +197,72 @@ function eventIndex(events,frame) {
   return lo;
 }
 
-function gridFit(inside,a,b,period,widthFloor=.5) {
-  if(inside.length<3)return {score:0,capture:0,occupancy:0,phase:0};
-  const scale=quantile(inside.map(e=>e.weight),.55)||1,total=inside.reduce((sum,e)=>sum+e.weight,0);
+// Event windows are created once and passed to multiple candidate grids.
+// Precompute the per-event arithmetic without changing double/float32 rounding.
+const preparedGridWindows = new WeakMap();
+function prepareGridWindow(events) {
+  let prepared = preparedGridWindows.get(events);
+  if (prepared) return prepared;
+  const weights = Float64Array.from(events, event => event.weight);
+  const scale = quantile(weights, .55) || 1;
+  prepared = {
+    frames: Float64Array.from(events, event => event.frame),
+    weights,
+    hitWeights: Float64Array.from(weights, weight => Math.min(1, weight / scale)),
+    total: Math.max(weights.reduce((sum, weight) => sum + weight, 0), 1e-9),
+  };
+  preparedGridWindows.set(events, prepared);
+  return prepared;
+}
+
+function gridFit(inside, a, b, period, widthFloor = .5) {
+  if (inside.length < 3) return {score:0, capture:0, occupancy:0, phase:0};
+  const { frames, weights, hitWeights, total } = prepareGridWindow(inside);
   // Half a frame covers onset quantization. A larger fixed floor would accept
   // almost any attack on a very fast grid and reward spurious subdivisions.
-  const phases=28,width=Math.max(widthFloor,Math.min(3,period*.10));
-  let best={score:0,capture:0,occupancy:0,phase:0},bestAccents=null;
-  for(let q=0;q<phases;q++){
-    const phase=q*period/phases,first=Math.ceil((a-phase)/period),last=Math.floor((b-1-phase)/period),n=last-first+1;
-    if(n<3)continue;
-    const hits=new Float32Array(n),accents=inside[0].salience===undefined?null:new Float32Array(n);let captured=0;
-    for(const e of inside){
-      const k=Math.round((e.frame-phase)/period),d=Math.abs(e.frame-phase-k*period);
-      const match=Math.exp(-.5*(d/width)**2);
-      captured+=e.weight*match;
-      if(k>=first&&k<=last){
-        hits[k-first]=Math.max(hits[k-first],Math.min(1,e.weight/scale)*match);
-        if(accents)accents[k-first]=Math.max(accents[k-first],e.salience*match);
-      }
+  const phases = 28, width = Math.max(widthFloor, Math.min(3, period * .10));
+  const hits = new Float32Array(Math.ceil((b - a) / period) + 1);
+  let best = {score:0, capture:0, occupancy:0, phase:0};
+  let bestFirst = 0, bestCount = 0;
+  for (let q = 0; q < phases; q++) {
+    const phase = q * period / phases;
+    const first = Math.ceil((a - phase) / period), last = Math.floor((b - 1 - phase) / period);
+    const n = last - first + 1;
+    if (n < 3) continue;
+    hits.fill(0, 0, n);
+    let captured = 0;
+    for (let i = 0; i < frames.length; i++) {
+      const position = frames[i] - phase;
+      const slot = Math.round(position / period);
+      const d = Math.abs(position - slot * period);
+      const match = Math.exp(-.5 * (d / width)**2);
+      captured += weights[i] * match;
+      if (slot >= first && slot <= last) hits[slot-first] = Math.max(hits[slot-first], hitWeights[i] * match);
     }
-    const capture=captured/Math.max(total,1e-9),occupancy=hits.reduce((sum,x)=>sum+x,0)/n;
-    const score=capture+occupancy>0?2*capture*occupancy/(capture+occupancy):0;
-    if(score>best.score){
-      best={score,capture,occupancy,phase};
-      bestAccents=accents;
+    let filled = 0;
+    for (let i = 0; i < n; i++) filled += hits[i];
+    const capture = captured / total, occupancy = filled / n;
+    const score = capture + occupancy > 0 ? 2 * capture * occupancy / (capture + occupancy) : 0;
+    if (score > best.score) {
+      best = {score, capture, occupancy, phase};
+      bestFirst = first;
+      bestCount = n;
     }
   }
-  // A filled grid whose even and odd slots have systematically different
-  // attack strength may describe eighth notes rather than the main pulse.
-  if(bestAccents?.length>=8&&best.occupancy>.48){
-    const even=median(bestAccents.filter((_,i)=>i%2===0));
-    const odd=median(bestAccents.filter((_,i)=>i%2===1));
-    best.subdivision=Math.abs(even-odd)/Math.max(even,odd,1e-9);
+  // Accent parity only affects the winning grid. Measure it once afterwards,
+  // retaining the original float32 maxima of its even and odd slots.
+  if (inside[0].salience !== undefined && bestCount >= 8 && best.occupancy > .48) {
+    const accents = new Float32Array(bestCount);
+    for (const event of inside) {
+      const position = event.frame - best.phase, slot = Math.round(position / period) - bestFirst;
+      if (slot < 0 || slot >= bestCount) continue;
+      const d = Math.abs(position - (slot + bestFirst) * period);
+      const match = Math.exp(-.5 * (d / width)**2);
+      accents[slot] = Math.max(accents[slot], event.salience * match);
+    }
+    const even = median(accents.filter((_, i) => i % 2 === 0));
+    const odd = median(accents.filter((_, i) => i % 2 === 1));
+    best.subdivision = Math.abs(even - odd) / Math.max(even, odd, 1e-9);
   }
   return best;
 }
@@ -443,7 +477,7 @@ async function trackBeats(data,tempo,progress) {
         if(v>best){best=v;bj=j;}
       }
       dp[x]=best+envelope[i]-.12;back[x]=bj;
-      if(x%8192===0){progress({stage:'拍の位置を整列',progress:.67+.15*(r+x/len)/regions.length});await tick();}
+      if(x%8192===0){progress({stage:'拍の位置を整列',progress:.77+.05*(r+x/len)/regions.length});await tick();}
     }
     let endpoint=len-1,best=-Infinity;
     const lookBack=Math.ceil(fps*90/tempo.tempoAtFrame(last));
@@ -773,7 +807,10 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
   if(!Number.isFinite(sampleRate)||sampleRate<1000||sampleRate>384000)throw new Error('音声のサンプルレートを確認してください。');
   const duration=samples.length/sampleRate;
   const progress=event=>{try{onProgress(event);}catch{}};
-  const empty=note=>({bpm:null,bpmMin:null,bpmMax:null,confidence:0,beats:[],sections:[],tempoCurve:[],tempoChanges:[],tempoRegions:[],candidates:[],duration,notes:[note],pulseUnit:'検出拍',method:'spectral-flux / local autocorrelation / dynamic beat tracking / accent periodicity'});
+  const empty=note=>{
+    progress({stage:'解析完了',progress:1});
+    return {bpm:null,bpmMin:null,bpmMax:null,confidence:0,beats:[],sections:[],tempoCurve:[],tempoChanges:[],tempoRegions:[],candidates:[],duration,notes:[note],pulseUnit:'検出拍',method:'spectral-flux / local autocorrelation / dynamic beat tracking / accent periodicity'};
+  };
   if(duration<2)return empty('解析には2秒以上の音源を使用してください。');
   const hintProvided=options.tempoHint!==undefined&&options.tempoHint!==null;
   const tempoHint=hintProvided?Number(options.tempoHint):null;
@@ -787,7 +824,8 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
   const automaticTempo=await estimateTempo(data,progress,spectralProposals);
   if(!automaticTempo.candidates.length)return empty('拍の周期性が弱く、信頼できるBPMを特定できませんでした。');
   progress({stage:'短いテンポ変化と細分音符の周期を照合',progress:.65});await tick();
-  let local=refineLocalTempo(data,automaticTempo.tempoAtFrame,{maxBpm:1200});
+  const localTempoOptions={maxBpm:1200,memoizeAnchors:true};
+  let local=refineLocalTempo(data,automaticTempo.tempoAtFrame,localTempoOptions);
   progress({stage:'一定テンポが音源全体に合うか確認',progress:.65});await tick();
   // The introduction need not carry the main pulse. Retain body-pulse ranking
   // while also testing sustained candidates discovered in the full spectrum.
@@ -863,6 +901,22 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
       constantClock=null;provisionalBeats=null;
     }
   }
+  // The regional tempo path cannot rescue this whole-track evidence gate.
+  // Local candidates below are read directly from the extracted signal.
+  if(!constantClock&&!tempoHint&&(automaticTempo.selectedPeriodicity<.14||automaticTempo.selectedScore<.24)) {
+    if (options.tempoScale === undefined || options.tempoScale === 1) {
+      const regionalProgress=fraction=>progress({stage:'周期を裏付けられる区間だけを確認',progress:.67+.28*fraction});
+      regionalProgress(0);
+      const tempoRegions = await findPartialTempoRegions(data, duration, regionalProgress);
+      if (tempoRegions.length) {
+        return {
+          ...empty('曲全体の拍を追跡できませんでした。複数の窓で周期が一致した区間を候補として表示します。'),
+          tempoModel:'regional-candidates', tempoRegions, tempoAmbiguous:true,
+        };
+      }
+    }
+    return empty('拍の周期性が弱く、信頼できるBPMを特定できませんでした。');
+  }
   let localClocks=null,observedShortRamps=[];
   if(!constantClock){
     progress({stage:'区間の周期と主な拍の取り方を照合',progress:.66});await tick();
@@ -873,9 +927,12 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
     // The prevailing body-pulse interpretation sets a unit, not a fixed rate.
     // Global subdivision lines can survive more sections than the main pulse.
     const reference=median(automaticTempo.chosen.map(c=>c.bpm));
-    localClocks=estimateLocalClockPath(data,{referenceBpm:reference},
+    const localClockProgress=fraction=>progress({stage:'区間ごとの周期を確認',progress:.675+.05*fraction});
+    localClockProgress(0);
+    localClocks=estimateLocalClockPath(data,{referenceBpm:reference,onWindow:localClockProgress},
       {gridFit,autocorrelate,lagScore});
     const original=local;
+    progress({stage:'周期の候補を照合',progress:.73});
     const regional=buildRegionalReference(data,automaticTempo,original,localClocks,reference,{minSupportSamples:3});
     const referenceAt=regional.referenceAtFrame;
     const isAlias=(a,b)=>a>0&&b>0&&Math.abs(Math.log2(a/b))>.12&&
@@ -907,12 +964,14 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
       return point.bpm;
     };
     localClocks.anchorAtFrame=anchors;localClocks.referenceBpm=reference;
-    local=refineLocalTempo(data,anchors,{maxBpm:1200});
+    progress({stage:'区間ごとのテンポを絞り込み',progress:.74});
+    local=refineLocalTempo(data,anchors,localTempoOptions);
     if(data.bodyAvailable){
-      const body=refineLocalTempo({...data,bandFlux:data.bandFlux.slice(0,2)},anchors,{maxBpm:1200});
+      const body=refineLocalTempo({...data,bandFlux:data.bandFlux.slice(0,2)},anchors,localTempoOptions);
       local=reconcileBodyTempo(local,body,automaticTempo.tempoAtFrame);
     }
     for(let i=0;i<local.curve.length;i++){
+      if (i % 128 === 0) progress({stage:'区間ごとのテンポを絞り込み',progress:.751+.01*i/local.curve.length});
       const point=local.curve[i],before=original.curve[i],clockPoint=localClocks.evidenceAtFrame(point.frame);
       const distance=Math.abs(Math.log2(point.bpm/before.bpm));
       const alias=[.5,2/3,1.5,2,3].some(level=>Math.abs(Math.log2(point.bpm/before.bpm/level))<.08);
@@ -943,6 +1002,7 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
     // discard a beat while a rapid transition crosses a half-time alias.
     // Stable contexts must agree with the selected pulse; the source schedule
     // and a notated bar length are never supplied to this fit.
+    progress({stage:'短い加速と減速を確認',progress:.765});
     const beforeRamps=local;
     const bodyObservations=data.bodyEvents.map(event=>({time:refineOnsetTime(data,event.frame),
       bpm:beforeRamps.tempoAtFrame(event.frame)}));
@@ -958,7 +1018,6 @@ export async function analyzeAudio(samples,sampleRate,options={},onProgress=()=>
         evidenceAtFrame:frame=>{const point=beforeRamps.evidenceAtFrame(frame),ramp=at(frame);return ramp&&point.supported?{...point,bpm:rate(ramp,frame),tempoSource:'beat-phase-ramp'}:point;}};
     }
   }
-  if(!constantClock&&!tempoHint&&(automaticTempo.selectedPeriodicity<.14||automaticTempo.selectedScore<.24))return empty('拍の周期性が弱く、信頼できるBPMを特定できませんでした。');
   if(constantClock){
     // A stable subdivision clock cannot prove which metrical level a performer
     // intends. Retain supported half/double interpretations rather than erasing

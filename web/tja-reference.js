@@ -161,20 +161,35 @@ export function compareTjaReference(reference, result, options = {}) {
     while (low < high) { const middle = (low + high) >> 1; if (events[middle].time <= time) low = middle + 1; else high = middle; }
     return Math.max(0, low - 1);
   };
+  function addMatchingDuration(from, to, bpm, seconds = 0) {
+    let time = from, index = eventAt(from);
+    while (time < to) {
+      const next = Math.min(to, index + 1 < events.length ? events[index + 1].time : to);
+      if (next > time && Math.abs(bpm / events[index].bpm - 1) <= tolerance + 8 * Number.EPSILON) seconds += next - time;
+      if (next >= to) break;
+      time = next;
+      index++;
+    }
+    return seconds;
+  }
   for (let i = 0; i < curve.length; i++) {
     const point = curve[i];
     const a = Math.max(start, i ? (curve[i - 1].time + point.time) / 2 : point.time);
     const b = Math.min(end, i + 1 < curve.length ? (point.time + curve[i + 1].time) / 2 : point.time);
     if (!(b > a) || !(Number.isFinite(point.bpm) && point.bpm > 0)) continue;
     supported += b - a;
-    let at = a, index = eventAt(a);
-    while (at < b) {
-      const next = Math.min(b, index + 1 < events.length ? events[index + 1].time : b);
-      if (next > at && Math.abs(point.bpm / events[index].bpm - 1) <= tolerance + 8 * Number.EPSILON) matching += next - at;
-      if (next >= b) break;
-      at = next; index++;
-    }
+    matching = addMatchingDuration(a, b, point.bpm, matching);
   }
+  // Local review candidates are compared as stated. They never fill the
+  // automatic curve or contribute to its coverage and agreement scores.
+  const localCandidateRegions = result.tempoModel === 'regional-candidates' ? (result.tempoRegions ?? []).flatMap(region => {
+    const from = Math.max(start, region.start), to = Math.min(end, region.end);
+    if (!(to > from)) return [];
+    const rates = [region.bpm, ...(region.alternatives ?? []).map(candidate => candidate.bpm)]
+      .filter(bpm => Number.isFinite(bpm) && bpm > 0);
+    if (!rates.length) return [];
+    return [{ start: from, end: to, candidates: rates.map(bpm => ({ bpm, matchingSeconds: addMatchingDuration(from, to, bpm) })) }];
+  }) : null;
   // All-time denominator includes unknown BPM and unobserved boundary regions.
   return { available: true, tolerance, start, end, duration,
     supportedSeconds: supported, unsupportedSeconds: Math.max(0, duration - supported), matchingSeconds: matching,
@@ -183,6 +198,7 @@ export function compareTjaReference(reference, result, options = {}) {
     referenceChangeCount: events.slice(1).filter(e => e.time >= start && e.time <= end).length,
     automaticChangeCount: Array.isArray(result.tempoChanges) ? result.tempoChanges.filter(c => Number.isFinite(c.start) && Number.isFinite(c.end) && c.end >= start && c.start <= end).length : 0,
     automaticTotalChangeCount: Array.isArray(result.tempoChanges) ? result.tempoChanges.length : 0,
+    ...(localCandidateRegions && { localCandidateRegions }),
     countScope: 'evaluation-window',
     offsetFitted: false, octaveFolded: false, referenceOnly: true };
 }

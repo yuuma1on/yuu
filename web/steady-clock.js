@@ -9,10 +9,10 @@ function spectrum(input){
   for(let len=2;len<=n;len*=2){const a=-2*Math.PI/len,ca=Math.cos(a),sa=Math.sin(a);for(let i=0;i<n;i+=len){let c=1,s=0;for(let j=0;j<len/2;j++){const x=i+j,y=x+len/2,tr=re[y]*c-im[y]*s,ti=re[y]*s+im[y]*c;re[y]=re[x]-tr;im[y]=im[x]-ti;re[x]+=tr;im[x]+=ti;const z=c*ca-s*sa;s=s*ca+c*sa;c=z;}}}
   return Float32Array.from({length:n/2+1},(_,i)=>Math.hypot(re[i],im[i]));
 }
-function phasor(v,fps,bpm,h,a,b){
+function phasor(v,fps,bpm,h,a,b,weights){
   const frequency=bpm*h/60,angle=-2*Math.PI*frequency/fps,ca=Math.cos(angle),sa=Math.sin(angle);let c=Math.cos(angle*a),s=Math.sin(angle*a),re=0,im=0,total=0;
   for(let i=a;i<b;i++){
-    const weight=.5-.5*Math.cos(2*Math.PI*(i-a)/Math.max(1,b-a-1)),value=v[i]*weight;
+    const value=v[i]*weights[i-a];
     re+=value*c;im+=value*s;total+=value;
     const z=c*ca-s*sa;s=s*ca+c*sa;c=z;
   }return {re,im,amplitude:Math.hypot(re,im)/Math.max(total,1e-9),energy:total/Math.max(1,b-a)};
@@ -29,7 +29,19 @@ function prepare(data){
     const at=s=>Math.max(0,s[center]+.5*offset*(s[center+1]-s[center-1])+.5*offset*offset*(s[center+1]+s[center-1]-2*s[center]));
     return band>=0?at(spectra[band]):spectra.reduce((sum,s)=>sum+at(s),0)/spectra.length;
   };
-  const p={fps,n,duration,bands,spectra,fftSize,amplitude};cache.set(data,p);return p;
+  const cachedWeights = new Map();
+  const weightsFor = length => {
+    if (!cachedWeights.has(length)) {
+      const weights = new Float64Array(Math.max(0,length)), denominator = Math.max(1,length-1);
+      for (let i = 0; i < length; i++) weights[i] = .5-.5*Math.cos(2*Math.PI*i/denominator);
+      // The full span and the few lengths produced by rounding sliding
+      // windows account for normal reuse. Bound storage for custom widths.
+      if (cachedWeights.size === 4) cachedWeights.delete(cachedWeights.keys().next().value);
+      cachedWeights.set(length,weights);
+    }
+    return cachedWeights.get(length);
+  };
+  const p={fps,n,duration,bands,spectra,fftSize,amplitude,weightsFor};cache.set(data,p);return p;
 }
 
 /** Discover candidate beat levels from the recording's global modulation
@@ -67,7 +79,7 @@ export function discoverClocks(data,references=[],options={}){
  * mixing spectral bands before phase comparison can cancel real evidence.
  */
 export function verifySteadyClock(data,referenceBpm,localCurve=[],options={}){
-  const p=prepare(data),{fps,n,duration,bands,amplitude}=p;
+  const p=prepare(data),{fps,n,duration,bands,amplitude,weightsFor}=p;
   if(duration<(options.minDuration??12)||!(referenceBpm>0))return {accepted:false,reason:'insufficient-span'};
   const harmonics=[[1,.15],[2,.3],[3,.2],[4,.3],[6,.2]];
   const step=Math.max(.001,Math.min(.01,15/duration/8));let bpm=referenceBpm,best=-Infinity;
@@ -91,10 +103,11 @@ export function verifySteadyClock(data,referenceBpm,localCurve=[],options={}){
     frequencies.push(frequency);return true;
   });
   if(hs.length<2)return {accepted:false,bpm,reason:'insufficient-harmonic-range'};
-  const definitions=bands.flatMap((v,band)=>hs.map(h=>({band,h,v,global:phasor(v,fps,bpm,h,0,n)})));
+  const globalWeights=weightsFor(n);
+  const definitions=bands.flatMap((v,band)=>hs.map(h=>({band,h,v,global:phasor(v,fps,bpm,h,0,n,globalWeights)})));
   const blocks=[];
   const windowSeconds=options.windowSeconds??4,windowStep=options.windowStep??1;
-  for(let center=windowSeconds/2;center<duration-windowSeconds/2;center+=windowStep){const a=Math.max(0,Math.round((center-windowSeconds/2)*fps)),b=Math.min(n,Math.round((center+windowSeconds/2)*fps)),clocks=definitions.map(d=>phasor(d.v,fps,bpm,d.h,a,b));blocks.push({time:center,clocks,energy:clocks.reduce((sum,p)=>sum+p.energy,0)/clocks.length});}
+  for(let center=windowSeconds/2;center<duration-windowSeconds/2;center+=windowStep){const a=Math.max(0,Math.round((center-windowSeconds/2)*fps)),b=Math.min(n,Math.round((center+windowSeconds/2)*fps)),weights=weightsFor(b-a),clocks=definitions.map(d=>phasor(d.v,fps,bpm,d.h,a,b,weights));blocks.push({time:center,clocks,energy:clocks.reduce((sum,p)=>sum+p.energy,0)/clocks.length});}
   const energyFloor=med(blocks.map(b=>b.energy))*.15;
   const active=blocks.filter(b=>b.energy>Math.max(.001,energyFloor));
   const diagnostics=definitions.map((definition,k)=>{

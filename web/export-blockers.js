@@ -1,4 +1,4 @@
-import {buildTimingDraft} from './tja-export.js';
+import {buildTimingDraft} from './tja-export.js?v=34';
 export const CONSTANT_UNCERTAINTY_ERROR='未推定・不確かな区間が含まれます。全区間を一定BPMで補完して書き出すことはできません。';
 const finite=x=>typeof x==='number'&&Number.isFinite(x);
 const LABELS=Object.freeze({missingRate:'BPMが未推定または不正',continuityMarker:'推定の連続性が途切れた印',uncertainSource:'推定元が判定保留',candidateRegion:'独立したBPM候補の領域'});

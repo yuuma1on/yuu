@@ -1,0 +1,33 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {analyzeAudio} from '../web/analysis.js';
+import {buildTimingDraft} from '../web/tja-export.js';
+import {parseTjaReference,compareTjaReference} from '../web/tja-reference.js';
+const require=createRequire(import.meta.url);
+const {createSyntheticRegionalWav,createSyntheticReferenceTja}=require('../desktop/regional-smoke.cjs');
+
+test('the generated packaged-smoke WAV actually exercises partial analysis and refuses full-track TJA',async()=>{
+ const wav=createSyntheticRegionalWav(),view=new DataView(wav.buffer,wav.byteOffset,wav.byteLength);
+ const samples=new Float32Array(view.getUint32(52,true)/4);
+ for(let i=0;i<samples.length;i++)samples[i]=view.getFloat32(56+i*4,true);
+ const result=await analyzeAudio(samples,view.getUint32(24,true));
+ assert.equal(result.tempoModel,'regional-candidates');assert.equal(result.bpm,null);
+ for(const key of ['beats','sections','tempoCurve','tempoChanges'])assert.deepEqual(result[key],[]);
+ assert.ok(result.tempoRegions.some(region=>[region,...region.alternatives].some(candidate=>Math.abs(candidate.bpm-173.125)<.6)));
+ const draft=buildTimingDraft(result,{confirmedMeter:'4/4',reference:{events:[{time:0,bpm:173.125}]}});
+ assert.equal(draft.available,false);assert.equal(draft.text,null);assert.deepEqual(draft.preview,[]);
+ assert.match(draft.errors[0],/局所の周期候補/);
+ const before=structuredClone(result),reference=parseTjaReference(createSyntheticReferenceTja());
+ assert.equal(reference.measures,54);
+ const comparison=compareTjaReference(reference,result);
+ assert.equal(comparison.available,true);
+ const region=comparison.localCandidateRegions.find(region=>region.start===32&&region.end===36);
+ assert.ok(region);
+ const candidate=region.candidates.find(candidate=>Math.abs(candidate.bpm-173.125)<.6);
+ assert.equal(candidate.matchingSeconds,4);
+ assert.equal(comparison.coveragePercent,0);assert.equal(comparison.directAgreementPercent,0);
+ assert.equal(comparison.supportedSeconds,0);assert.equal(comparison.matchingSeconds,0);
+ assert.equal(comparison.unsupportedSeconds,comparison.duration);
+ assert.deepEqual(result,before);
+});

@@ -1,4 +1,4 @@
-import { analyzeAudio } from './analysis.js?v=33';
+import { analyzeAudio } from './analysis.js?v=34';
 self.onmessage = async ({data}) => {
   try {
     const result = await analyzeAudio(data.samples, data.sampleRate, data.options,

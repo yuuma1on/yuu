@@ -12,7 +12,8 @@ const {ORIGIN,trustedUrl,resolveAsset,permittedTjaFile,createTjaPermissions}=req
 protocol.registerSchemesAsPrivileged([{scheme:'pulse',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 const CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' blob:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const updateSmoke=process.argv.includes('--update-smoke-test');
-const smoke=updateSmoke||process.argv.includes('--smoke-test');
+const regionalSmoke=process.argv.includes('--regional-smoke-test');
+const smoke=updateSmoke||regionalSmoke||process.argv.includes('--smoke-test');
 let mainWindow,updates,checkTimer,periodicTimer,quitFallback=false;
 if(!app.requestSingleInstanceLock())app.quit();
 else{
@@ -66,7 +67,7 @@ async function start(){
   {label:'表示',submenu:[{role:'resetZoom',label:'元の大きさ'},{role:'zoomIn',label:'拡大'},{role:'zoomOut',label:'縮小'},{role:'togglefullscreen',label:'全画面'}]},
   {label:'ヘルプ',submenu:[{label:'更新を確認',click:()=>updates.check()},{label:'配布ページを開く',click:()=>shell.openExternal('https://github.com/yuuma1on/yuu/releases')},{label:'PULSEについて',click:()=>dialog.showMessageBox(mainWindow,{type:'info',title:'PULSE',message:`PULSE ${app.getVersion()}`,detail:'音源を端末内で解析します。BPMと拍子は推定候補です。'})}]}
  ]));
- if(smoke)wc.once('did-finish-load',()=>Promise.resolve().then(()=>updateSmoke?runUpdateSmoke():runSmoke()).catch(error=>finishSmoke({ok:false,error:error.message},1)));
+ if(smoke)wc.once('did-finish-load',()=>Promise.resolve().then(()=>updateSmoke?runUpdateSmoke():regionalSmoke?runRegionalSmoke():runSmoke()).catch(error=>finishSmoke({ok:false,error:error.message},1)));
  await mainWindow.loadURL(ORIGIN+'/index.html');
  if(!smoke){checkTimer=setTimeout(()=>updates.check(),10000);periodicTimer=setInterval(()=>updates.check(),6*60*60*1000);}
 }
@@ -82,10 +83,14 @@ async function runSmoke(){
     const label=document.querySelector('.topbar #pulseDesktopVersion');
     const displayedVersion=label?.checkVisibility()?label.textContent:null;
     const ok=!basic.nodeAvailable&&basic.secureContext&&basic.workerAvailable&&basic.desktopBridge&&Math.abs(bpm-120)<.05&&displayedVersion==='v'+state.appVersion;
-    return {...basic,appVersion:state.appVersion,displayedVersion,bpm,ok};
+    return {...basic,appVersion:state.appVersion,displayedVersion,bpm,ok,regionalSmokeAvailable:true};
    }
   }throw new Error('Audio analysis smoke timed out');
  })()`);
+ finishSmoke(result,result.ok?0:1);
+}
+async function runRegionalSmoke(){
+ const result=await require('./regional-smoke.cjs').runRegionalSmoke(mainWindow.webContents);
  finishSmoke(result,result.ok?0:1);
 }
 function finishSmoke(result,code){

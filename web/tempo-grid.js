@@ -1,16 +1,15 @@
 // Generic short-window modulation-grid refinement. No audio-specific tempos.
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const quantile=(a,q)=>{const s=Array.from(a).filter(v=>v>0).sort((x,y)=>x-y);return s[Math.floor((s.length-1)*q)]||1;};
-function box(input,radius){
-  const out=new Float64Array(input.length);let sum=0;
+function box(input,radius,out){
+  let sum=0;
   for(let i=0;i<=radius&&i<input.length;i++)sum+=input[i];
   for(let i=0;i<input.length;i++){
     out[i]=sum/(Math.min(input.length-1,i+radius)-Math.max(0,i-radius)+1);
     if(i-radius>=0)sum-=input[i-radius];
     if(i+radius+1<input.length)sum+=input[i+radius+1];
-  }return out;
+  }
 }
-const smooth=(a,r)=>box(box(box(a,r),r),r);
 
 /** data: {fps, count, novelty?, bandFlux?}. anchors: frame=>BPM.
  * Returns a diagnostic local curve and tempoAtFrame(), leaving beat decisions
@@ -24,19 +23,32 @@ export function refineLocalTempo(data,anchors,options={}){
   else signal.set(data.novelty);
   const step=Math.max(1,Math.round(fps*(options.stepSeconds??.16)));
   const frames=Array.from({length:Math.ceil(n/step)},(_,i)=>Math.min(n-1,i*step));
+  const cachedAnchors=options.memoizeAnchors===true&&anchors?frames.map(frame=>anchors(frame)):null;
+  const anchorAt=cachedAnchors?index=>cachedAnchors[index]:index=>anchors?.(frames[index]);
   const radius=Math.max(1,Math.round(fps*(options.sigma??.30)));
-  const normalization=smooth(signal,radius);
+  const firstPass=new Float64Array(n),secondPass=new Float64Array(n);
+  const smooth=(input,output)=>{
+    box(input,radius,firstPass);
+    box(firstPass,radius,secondPass);
+    box(secondPass,radius,output);
+  };
+  const normalization=new Float64Array(n);
+  smooth(signal,normalization);
   const frequencyStep=.1,minFrequency=.5,maxFrequency=Math.min(31,fps*.47);
   const frequencies=Array.from({length:Math.floor((maxFrequency-minFrequency)/frequencyStep)+1},(_,i)=>minFrequency+i*frequencyStep);
-  // Keep only sampled outputs from each frequency; temporary full-length
-  // demodulation buffers can be collected between frequencies.
+  // Reuse the full-length demodulation buffers. Each pass writes every
+  // element before reading it and the sampled outputs stay per-frequency.
+  const real=new Float64Array(n),imag=new Float64Array(n),carrierRe=new Float64Array(n),carrierIm=new Float64Array(n);
+  const re=new Float64Array(n),im=new Float64Array(n),meanRe=new Float64Array(n),meanIm=new Float64Array(n);
   const amplitudes=[],rates=[];
   for(const frequency of frequencies){
-    const real=new Float64Array(n),imag=new Float64Array(n),carrierRe=new Float64Array(n),carrierIm=new Float64Array(n);
     const angle=-2*Math.PI*frequency/fps,ca=Math.cos(angle),sa=Math.sin(angle);let c=1,s=0;
     for(let i=0;i<n;i++){real[i]=signal[i]*c;imag[i]=signal[i]*s;carrierRe[i]=c;carrierIm[i]=s;const cc=c*ca-s*sa;s=s*ca+c*sa;c=cc;}
-    const re=smooth(real,radius),im=smooth(imag,radius),amp=new Float32Array(frames.length),rate=new Float32Array(frames.length);
-    const meanRe=smooth(carrierRe,radius),meanIm=smooth(carrierIm,radius);
+    smooth(real,re);
+    smooth(imag,im);
+    smooth(carrierRe,meanRe);
+    smooth(carrierIm,meanIm);
+    const amp=new Float32Array(frames.length),rate=new Float32Array(frames.length);
     for(let i=0;i<n;i++){re[i]-=normalization[i]*meanRe[i];im[i]-=normalization[i]*meanIm[i];}
     for(let j=0;j<frames.length;j++){
       const i=frames[j],a=Math.max(0,i-1),b=Math.min(n-1,i+1);
@@ -54,7 +66,7 @@ export function refineLocalTempo(data,anchors,options={}){
   const anchorWeight=options.anchorWeight??.20,transitionWeight=options.transitionWeight??.22;
   const score=(k,j)=>{
     let value=0;for(const {w,i}of bins[k])value+=w*amplitudes[i][j];
-    const anchor=anchors?.(frames[j]);
+    const anchor=anchorAt(j);
     if(anchor>0)value-=anchorWeight*Math.abs(Math.log2(bpms[k]/anchor));
     return value;
   };
@@ -80,7 +92,7 @@ export function refineLocalTempo(data,anchors,options={}){
       const rate=rates[i][j]*60/h,amplitude=amplitudes[i][j];
       if(rate>0&&Math.abs(Math.log2(rate/coarse))<.12){const ww=amplitude*amplitude;sum+=rate*ww;weight+=ww;coherence+=w*amplitude;}
     }
-    const bpm=weight>1e-8?sum/weight:coarse,anchor=anchors?.(frame);
+    const bpm=weight>1e-8?sum/weight:coarse,anchor=anchorAt(j);
     // Coherence is evidence strength, not a calibrated probability. Weak
     // evidence may refine the chosen level, but must not invent a remote one.
     const supported=coherence>=.04&&(!anchor||Math.abs(Math.log2(bpm/anchor))<.35||coherence>=.15);

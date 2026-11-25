@@ -134,6 +134,19 @@ jobs:
           if ($result.ok -ne $true -or $result.appVersion -cne $env:APP_VERSION -or $result.nodeAvailable -ne $false -or $result.secureContext -ne $true -or $result.bpm -ne 120) {
             throw 'Packaged app did not pass demo, sandbox, version, and secure-context checks.'
           }
+          $regionalOutput = Join-Path $env:RUNNER_TEMP "pulse-regional-smoke-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.json"
+          if (Test-Path $regionalOutput) { throw 'Regional smoke output already exists.' }
+          $regional = Start-Process -FilePath $executable -ArgumentList @('--regional-smoke-test', "--smoke-output=$regionalOutput", '--enable-logging=stderr') -PassThru
+          if (-not $regional.WaitForExit(150000)) { Stop-Process -Id $regional.Id -Force; throw 'Packaged regional smoke test timed out.' }
+          if (Test-Path -PathType Leaf $regionalOutput) { Get-Content -Raw $regionalOutput }
+          if ($regional.ExitCode -ne 0 -or -not (Test-Path -PathType Leaf $regionalOutput)) { throw 'Packaged regional smoke test failed.' }
+          $regionalResult = Get-Content -Raw $regionalOutput | ConvertFrom-Json
+          if ($regionalResult.ok -ne $true -or $regionalResult.appVersion -cne $env:APP_VERSION -or $regionalResult.displayedVersion -cne "v$env:APP_VERSION" -or $regionalResult.nodeAvailable -ne $false -or $regionalResult.secureContext -ne $true -or $regionalResult.regionalCandidates -lt 1 -or $regionalResult.fullTrackTimingEmpty -ne $true -or $regionalResult.tjaGuarded -ne $true -or $regionalResult.tjaDownloads -ne 0 -or $regionalResult.progressMonotonic -ne $true -or $regionalResult.referenceDidNotMutateAnalysis -ne $true) {
+            throw 'Packaged app did not pass regional-candidate, TJA guard, progress, and isolation checks.'
+          }
+          if ($regionalResult.localReferenceMatched -ne $true -or $regionalResult.localReferenceMatchingSeconds -ne 4 -or $regionalResult.referenceComparisonVisible -ne $true -or $regionalResult.wholeTrackCoveragePercent -ne 0 -or $regionalResult.wholeTrackDirectAgreementPercent -ne 0) {
+            throw 'Packaged app did not show the actual local reference match while preserving unestimated full-track coverage.'
+          }
 
       - name: Upload only Windows release assets
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
