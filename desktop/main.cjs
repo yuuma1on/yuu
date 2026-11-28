@@ -32,7 +32,12 @@ async function start(){
   const headers=new Headers(original.headers);headers.set('Content-Security-Policy',CSP);headers.set('Cache-Control','no-store');headers.set('X-Content-Type-Options','nosniff');
   return new Response(request.method==='HEAD'?null:original.body,{status:original.status,headers});
  });
- mainWindow=new BrowserWindow({width:1440,height:960,minWidth:390,minHeight:650,show:!smoke,backgroundColor:'#f8f7f4',title:'PULSE',icon:path.join(app.getAppPath(),'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,webviewTag:false,spellcheck:false,backgroundThrottling:!smoke}});
+ const maximizeAtStartup=process.platform==='win32'&&!smoke;
+ mainWindow=new BrowserWindow({width:1440,height:960,minWidth:390,minHeight:650,show:!smoke&&!maximizeAtStartup,backgroundColor:'#f8f7f4',title:'PULSE',icon:path.join(app.getAppPath(),'assets','icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,webviewTag:false,spellcheck:false,backgroundThrottling:!smoke}});
+ if(maximizeAtStartup)mainWindow.once('ready-to-show',()=>{
+  mainWindow.maximize();
+  mainWindow.show();
+ });
  const wc=mainWindow.webContents,ses=wc.session;
  const filePermissions=createTjaPermissions();
  const safePermission=(contents,permission,origin,details)=>contents===wc&&trustedUrl(wc.getURL())&&permittedTjaFile(permission,origin,details);

@@ -143,6 +143,35 @@ function visibleTempoChanges(){
     Number.isFinite(change.fromBpm)&&change.fromBpm>0&&Number.isFinite(change.toBpm)&&change.toBpm>0);
 }
 function tempoChangeEstimate(change){return change.reportedTiming?.estimate??(Number.isFinite(change.timeEstimate)?change.timeEstimate:(change.start+change.end)/2);}
+function tempoStepDisplayUncertainty(change, uncertainty){
+  const estimate=tempoChangeEstimate(change);
+  if(!Number.isFinite(estimate))return uncertainty;
+  const report=change.reportedTiming;
+  const hasReportBounds=Number.isFinite(report?.start)&&report.start>=0&&Number.isFinite(report?.end)&&report.end>=report.start;
+  const timing=hasReportBounds?report:change;
+  const start=Math.min(estimate-uncertainty,timing.start);
+  const end=Math.max(estimate+uncertainty,timing.end);
+  const center=Math.round(Math.max(0,estimate)*100);
+  let radius=Math.ceil(Math.max(center/100-start,end-center/100)*100);
+  if(!Number.isSafeInteger(center)||!Number.isSafeInteger(radius)||!Number.isSafeInteger(center+radius+1))return uncertainty;
+  // Compare the represented endpoints to avoid an extra centisecond from floating-point subtraction.
+  const covers=ticks=>(center-ticks)/100<=start&&(center+ticks)/100>=end;
+  if(!covers(radius))radius++;
+  if(radius>0&&covers(radius-1))radius--;
+  return radius/100;
+}
+function tempoStepDisplayBounds(report,duration){
+  const {start,end}=report;
+  if(!Number.isFinite(duration)||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<start||end>duration)return null;
+  let first=Math.floor(start*100),last=Math.ceil(end*100);
+  if(!Number.isSafeInteger(first)||!Number.isSafeInteger(last+1))return null;
+  // Compare the represented ticks so an exact source endpoint can stay numeric.
+  if(first/100>start)first--;
+  else if((first+1)/100<=start)first++;
+  if(last/100<end)last++;
+  else if((last-1)/100>=end)last--;
+  return [fmt(first/100,2),last/100>duration?'音源の終端':fmt(last/100,2)];
+}
 function renderTempoChanges(){
   const changes=visibleTempoChanges(),list=$('tempoChangesList'),empty=$('tempoChangesEmpty');list.replaceChildren();
   const constant=state.result?.tempoModel==='constant-clock';
@@ -170,8 +199,15 @@ function renderTempoChanges(){
       strength.textContent += ' · 前後のBPMに未推定箇所あり';
     }
     const report=change.reportedTiming,uncertainty=report?.uncertainty??change.timeUncertainty;
-    if(report?.boundsClipped)strength.textContent+=` · 候補範囲 ${fmt(report.start,2)} — ${fmt(report.end,2)}`;
-    else if(Number.isFinite(uncertainty)&&uncertainty>0)strength.textContent+=` · ${change.type==='step'?'推定時刻':'区間端の推定'} ±${uncertainty.toFixed(2)}秒`;
+    if(report?.boundsClipped){
+      const bounds=change.type==='step'&&report.boundsClipped===true?tempoStepDisplayBounds(report,state.duration):null;
+      const [start,end]=bounds??[fmt(report.start,2),fmt(report.end,2)];
+      strength.textContent+=` · 候補範囲 ${start} — ${end}`;
+    }
+    else if(Number.isFinite(uncertainty)&&uncertainty>0){
+      const displayWidth=change.type==='step'?tempoStepDisplayUncertainty(change,uncertainty):uncertainty;
+      strength.textContent+=` · ${change.type==='step'?'推定時刻':'区間端の推定'} ±${displayWidth.toFixed(2)}秒`;
+    }
     details.append(heading,rates,strength);
     const button=document.createElement('button');button.className='button secondary small-button tempo-change-play';button.textContent='試聴 ↗';button.disabled=state.busy;
     button.setAttribute('aria-label',`${time.textContent}の${label.textContent}候補、${num(change.fromBpm)}から${num(change.toBpm)} BPMを試聴`);

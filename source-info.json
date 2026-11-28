@@ -8,7 +8,7 @@
     },
     "app.js": {
       "upstreamSha256": "45cca85dab32d3440189cc41659898f659b5f8a59a4a1479ea1a14ee738b70da",
-      "packagedSha256": "45cca85dab32d3440189cc41659898f659b5f8a59a4a1479ea1a14ee738b70da"
+      "packagedSha256": "b245001ddd7322e4b490e308dc194c71abfc607b507f5e973e92e9235b149149"
     },
     "beat-precision.js": {
       "upstreamSha256": "7859bcbbc5fd2f09816784e03eaa6cbda64a6a580da7cfcd98ed9eb1d0c1be42",
@@ -32,7 +32,7 @@
     },
     "index.html": {
       "upstreamSha256": "48c41e4a152ba675cc7837ef5a8e4772b1506585d1be4583165f6e74aaa044c3",
-      "packagedSha256": "bd7320af8ea51eed5fbb8f3be98a826b3eaf08cfd7afee19bc7687db5237c660"
+      "packagedSha256": "3d00eaf275c4b5617202b88debc9dc7f8e04f3c3d53a316dc297d184a0b90912"
     },
     "local-clocks.js": {
       "upstreamSha256": "9b3b03503b6428bb9c8e9201dd3f7d91dce1d63122e2f1d9a9599456f253879a",
